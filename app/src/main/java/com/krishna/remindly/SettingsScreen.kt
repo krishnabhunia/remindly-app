@@ -934,7 +934,7 @@ fun SettingsScreen(filterKey: String? = null, embedded: Boolean = false) {
                         IconButton(onClick = { deleteList = list }) { Icon(Icons.Filled.Delete, "Delete list", tint = OverdueRed) }
                     }
                 }
-                if (editorOpen) TaskListEditorSheet(editList, "", TasksPal, onDismiss = { editorOpen = false }) { editorOpen = false }
+                if (editorOpen) TaskListEditorSheet(editList, "", TasksPal, createLabel = "Create list", onDismiss = { editorOpen = false }) { editorOpen = false }
                 deleteList?.let { list ->
                     AlertDialog(onDismissRequest = { deleteList = null }, title = { Text("Delete list?") },
                         text = { Text("Delete “${list.name}”? Its tasks stay in Unsorted with their reminders and completion status.") },

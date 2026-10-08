@@ -328,6 +328,7 @@ private fun TaskListsEmpty(pal: TabPalette, onCreate: () -> Unit) {
 @Composable
 fun TaskListEditorSheet(
     list: TaskList?, prefillName: String, pal: TabPalette,
+    createLabel: String = "Create & add tasks",
     onDismiss: () -> Unit, onSaved: (TaskList?) -> Unit
 ) {
     val context = LocalContext.current
@@ -362,7 +363,7 @@ fun TaskListEditorSheet(
                 Button(onClick = { save() }, enabled = error == null,
                     colors = ButtonDefaults.buttonColors(containerColor = pal.accent),
                     contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.weight(1.3f).height(50.dp)) {
-                    Text(if (list == null) "Create & add tasks" else "Save list", color = Color.White,
+                    Text(if (list == null) createLabel else "Save list", color = Color.White,
                         fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }

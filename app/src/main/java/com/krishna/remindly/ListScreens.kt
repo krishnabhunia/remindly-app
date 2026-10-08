@@ -734,7 +734,8 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                             Box(Modifier.animateItemPlacement()) {
                                 MonthHeader(
                                     // v2.9 (N45): the group's emoji icon leads the label
-                                    (if (sortMode == "GROUP") groupIconFor(gLabel, settings)?.let { "$it " } ?: "" else "") +
+                                    (if (sortMode == "GROUP") (if (tab == Tab.TASKS)
+                                        taskListNamed(settings.taskLists, gLabel)?.icon else groupIconFor(gLabel, settings))?.let { "$it " } ?: "" else "") +
                                     gLabel + (if (tab == Tab.SHOP) spendLabel(gItems) else if (tab == Tab.LEARN) hoursLabel(gItems) else ""),
                                     gItems.size, gKey in collapsedMonths, pal,
                                     onToggle = { collapsedMonths = toggle(collapsedMonths, gKey) },

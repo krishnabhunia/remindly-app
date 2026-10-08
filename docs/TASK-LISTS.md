@@ -25,4 +25,4 @@ Global Settings → Lists → Lists before tasks defaults to On. Tasks settings 
 
 Automated coverage lives in `TaskListsTest.kt`: migration/idempotency, Task/Shop separation, counts/sorting, save gating, real store create/rename/move/delete and reload, backup roundtrip/import, reset/discard and sync deletion convergence. Existing schema expectations advance from 43 to 44. The local machine has no Android SDK or Gradle, so the PR's existing GitHub Actions workflow is the build/test gate.
 
-Physical-device validation and negative-control results are recorded separately in the PR and device checklist; no device pass is claimed by this document.
+Physical-device validation and compile-valid negative controls remain required before a release. No device pass or negative-control run is claimed by this document.
