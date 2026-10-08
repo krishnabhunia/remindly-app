@@ -244,6 +244,7 @@ object SyncRepo {
         if (changed) {
             ItemStore.replaceAll(cur.values.toList())
             ShopListStore.reconcile(context)   // v2.11 (N48): an older device's new group becomes a list
+            TaskListStore.reconcile(context)
             runCatching { AlarmScheduler.rescheduleAll(context) }
         }
     }
@@ -295,12 +296,22 @@ object SyncRepo {
 
     private fun applySettings(context: Context, remoteIn: AppSettings) {
         val local = SettingsStore.s.value
-        if (remoteIn.settingsUpdatedAt <= local.settingsUpdatedAt) return
         // v2.11 (N48): a pre-43 device's doc misses the new Booleans (Gson → false) — restore defaults.
         val remote = SettingsStore.migrate(remoteIn)
+        // List data merges independently of the preference document's timestamp. An older
+        // preferences snapshot can still carry a newer list edit or deletion.
+        val taskLists = mergeTaskLists(local.taskLists, remote.taskLists)
+        if (remoteIn.settingsUpdatedAt <= local.settingsUpdatedAt) {
+            if (taskLists != local.taskLists) {
+                SettingsStore.update { current -> mirrorTaskListsIntoSettings(current.copy(taskLists = taskLists)) }
+                TaskListStore.reconcile(context)
+            }
+            return
+        }
         // Keep device-local fields; union groups/topics so neither device loses one.
         val merged = remote.copy(
             shopLists = mergeShopLists(local.shopLists, remote.shopLists),   // v2.11 (N48): per id, latest wins
+            taskLists = taskLists,
             cloudSync = local.cloudSync,                 // the toggle is per-device
             lastSyncAt = local.lastSyncAt,
             lastDataBackupAt = local.lastDataBackupAt,
@@ -309,8 +320,13 @@ object SyncRepo {
             learnTopics = (local.learnTopics + remote.learnTopics).distinct()
         )
         seenSettings = remote.settingsUpdatedAt
-        SettingsStore.applyRemote(merged)
+        if (taskLists != remote.taskLists) SettingsStore.applyRemote(merged.copy(
+            settingsUpdatedAt = maxOf(System.currentTimeMillis(), local.settingsUpdatedAt, remote.settingsUpdatedAt)
+                .let { if (it == Long.MAX_VALUE) it else it + 1L }
+        ))
+        else SettingsStore.applyRemote(merged)
         ShopListStore.reconcile(context)   // v2.11 (N48): heal duplicate names, stamp items, re-mirror
+        TaskListStore.reconcile(context)
         ShopListStore.rescheduleShoppingDays(context)
     }
 

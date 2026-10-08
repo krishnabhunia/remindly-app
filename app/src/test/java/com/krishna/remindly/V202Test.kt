@@ -164,7 +164,7 @@ class V202Test {
     }
 
     @Test fun v205_schemaIs39_afterN37() {
-        assertEquals(43, AppSettings().ver)
-        assertEquals(43, healSettings(AppSettings()).ver)
+        assertEquals(44, AppSettings().ver)
+        assertEquals(44, healSettings(AppSettings()).ver)
     }
 }

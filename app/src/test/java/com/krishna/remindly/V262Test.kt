@@ -102,6 +102,6 @@ class V262Test {
     }
 
     @Test fun v262_schemaUnchanged_bugFixOnly() {
-        assertEquals(43, AppSettings().ver)
+        assertEquals(44, AppSettings().ver)
     }
 }

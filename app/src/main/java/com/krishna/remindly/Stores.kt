@@ -41,6 +41,7 @@ object Stores {
         ProductStore.load()
         // v2.11 (N48): groups → lists (idempotent; also heals duplicate names from two devices).
         ShopListStore.reconcile(appContext)
+        TaskListStore.reconcile(appContext)
         // v1.90 one-time migration: seed Cities from the free-text Shop.area values. Pure
         // function (unit-tested), guarded, idempotent, and flagged off after the first run.
         runCatching {
@@ -623,6 +624,9 @@ object SettingsStore {
             ver = 43, buyShowUnsorted = true, buyCardTotal = true, buyDupWarn = true,
             shareWaIcon = true, shareUrgentTag = true, shareBoughtTag = true
         )
+        if (out.ver < 44) out = out.copy(
+            ver = 44, globalTaskListsFirst = true, tasksListsFirst = -1, taskListSort = "RECENT"
+        )
         // v1.48: calendar window unit/months + Shop.area + discrete radius — defaults only.
         return out
     }
@@ -640,7 +644,10 @@ object SettingsStore {
     }
 
     fun update(persist: Boolean = true, transform: (AppSettings) -> AppSettings) {
-        s.value = transform(s.value).copy(settingsUpdatedAt = System.currentTimeMillis())
+        val current = s.value
+        // Consecutive list/settings writes within one millisecond must each reach sync.
+        val stamp = maxOf(System.currentTimeMillis(), current.settingsUpdatedAt).let { if (it == Long.MAX_VALUE) it else it + 1L }
+        s.value = transform(current).copy(settingsUpdatedAt = stamp)
         if (persist) save()
     }
 
@@ -1049,7 +1056,8 @@ object Backup {
         val shopGroups: List<String> = emptyList(),
         val learnTopics: List<String> = emptyList(),
         // v2.11 (N48): the Buy lists travel with the items that point at them. Null on older files.
-        val shopLists: List<ShopList>? = emptyList()
+        val shopLists: List<ShopList>? = emptyList(),
+        val taskLists: List<TaskList>? = emptyList()
     )
 
     data class SettingsBlob(val kind: String = "remindly-settings", val settings: AppSettings)
@@ -1061,7 +1069,7 @@ object Backup {
                 items = ItemStore.items.value, calls = CallStore.calls.value,
                 places = PlaceStore.places.value,
                 tasksGroups = s.tasksGroups, shopGroups = s.shopGroups, learnTopics = s.learnTopics,
-                shopLists = s.shopLists
+                shopLists = s.shopLists, taskLists = s.taskLists
             )
         )
     }
@@ -1109,10 +1117,12 @@ object Backup {
                 tasksGroups = (s.tasksGroups + blob.tasksGroups).distinct(),
                 shopGroups = (s.shopGroups + blob.shopGroups).distinct(),
                 learnTopics = (s.learnTopics + blob.learnTopics).distinct(),
-                shopLists = mergeShopLists(s.shopLists, blob.shopLists ?: emptyList())   // v2.11 (N48): per id, latest wins
+                shopLists = mergeShopLists(s.shopLists, blob.shopLists ?: emptyList()),   // v2.11 (N48): per id, latest wins
+                taskLists = mergeTaskLists(s.taskLists, blob.taskLists ?: emptyList())
             )
         }
         ShopListStore.reconcile(context)   // v2.11 (N48): a ≤2.10 file has groups only — they become lists here
+        TaskListStore.reconcile(context)
         AlarmScheduler.rescheduleAll(context)
         Geofencer.registerAll(context)
     }
@@ -1123,9 +1133,11 @@ object Backup {
         PlaceStore.replaceAll(blob.places)
         SettingsStore.update { s ->
             s.copy(tasksGroups = blob.tasksGroups, shopGroups = blob.shopGroups, learnTopics = blob.learnTopics,
-                shopLists = blob.shopLists ?: emptyList())
+                shopLists = blob.shopLists ?: emptyList(),
+                taskLists = mergeTaskLists(s.taskLists, blob.taskLists ?: emptyList()))
         }
         ShopListStore.reconcile(context)   // v2.11 (N48)
+        TaskListStore.reconcile(context)
         AlarmScheduler.rescheduleAll(context)
         Geofencer.registerAll(context)
     }
@@ -1136,8 +1148,11 @@ object Backup {
         val keepL = SettingsStore.s.value.learnTopics
         // v2.11 (N48): lists are DATA (items point at them) — a settings import merges them, never drops mine.
         val lists = mergeShopLists(SettingsStore.s.value.shopLists, (blob.settings.shopLists ?: emptyList()))
-        SettingsStore.replace(healSettings(blob.settings).copy(tasksGroups = keepT, shopGroups = keepS, learnTopics = keepL, shopLists = lists))
+        val taskLists = mergeTaskLists(SettingsStore.s.value.taskLists, (blob.settings.taskLists ?: emptyList()))
+        SettingsStore.replace(healSettings(blob.settings).copy(tasksGroups = keepT, shopGroups = keepS, learnTopics = keepL,
+            shopLists = lists, taskLists = taskLists))
         ShopListStore.reconcile(Stores.appContext)
+        TaskListStore.reconcile(Stores.appContext)
     }
 
     /** Kind sniffing: "remindly-data" / "remindly-settings" / legacy full blob. */
@@ -1160,11 +1175,14 @@ object Backup {
                 tasksGroups = b.tasksGroups ?: emptyList(),
                 shopGroups = b.shopGroups ?: emptyList(),
                 learnTopics = b.learnTopics ?: emptyList(),
-                shopLists = (b.shopLists ?: emptyList()).map(::healShopList)
+                shopLists = (b.shopLists ?: emptyList()).map(::healShopList),
+                taskLists = (b.taskLists ?: emptyList()).mapNotNull { runCatching { healTaskList(it) }.getOrNull() }
             )
         }
     }.getOrNull()
-    fun parseSettings(json: String): SettingsBlob? = runCatching { gson.fromJson(json, SettingsBlob::class.java) }.getOrNull()
+    fun parseSettings(json: String): SettingsBlob? = runCatching {
+        gson.fromJson(json, SettingsBlob::class.java)?.let { it.copy(settings = healSettings(it.settings ?: AppSettings())) }
+    }.getOrNull()
 
     /** v1.9 auto-backup: at most once per 24 h, keep the newest 7. */
     fun autoBackupIfDue(context: Context) {
@@ -1255,14 +1273,21 @@ object Backup {
     /** Returns the parsed blob, or null if the file is not a Remindly backup. */
     fun parse(json: String): BackupBlob? = runCatching {
         val blob = gson.fromJson(json, BackupBlob::class.java)
-        if (blob?.items == null || blob.places == null) null else blob
+        if (blob?.items == null || blob.places == null) null else blob.copy(
+            items = blob.items.map(::healItem), places = blob.places.map(::healPlace),
+            calls = blob.calls?.map(::healCall) ?: emptyList(), settings = healSettings(blob.settings ?: AppSettings())
+        )
     }.getOrNull()
 
     fun apply(context: Context, blob: BackupBlob) {
         ItemStore.replaceAll(blob.items)
         PlaceStore.replaceAll(blob.places)
         CallStore.replaceAll(blob.calls ?: emptyList())
-        SettingsStore.replace(blob.settings)
+        val incoming = healSettings(blob.settings ?: AppSettings())
+        val taskLists = mergeTaskLists(SettingsStore.s.value.taskLists, incoming.taskLists)
+        SettingsStore.replace(incoming.copy(taskLists = taskLists))
+        ShopListStore.reconcile(context)
+        TaskListStore.reconcile(context)
         AlarmScheduler.rescheduleAll(context)
         Geofencer.registerAll(context)
     }
@@ -1353,6 +1378,10 @@ fun settingsDiff(old: AppSettings?, new: AppSettings): List<Triple<String, Strin
         if (o != n) out.add(Triple(name, "edited (${o.size}", "${n.size} entries)"))
     }
     listChange("Tasks groups", old.tasksGroups, new.tasksGroups)
+    add("Lists before tasks", onOff(old.globalTaskListsFirst), onOff(new.globalTaskListsFirst))
+    fun listViewOverride(value: Int) = when (value) { 0 -> "Classic tasks"; 1 -> "Lists first"; else -> "Inherit" }
+    add("Tasks opening view", listViewOverride(old.tasksListsFirst), listViewOverride(new.tasksListsFirst))
+    add("Task list order", old.taskListSort, new.taskListSort)
     listChange("Shop groups", old.shopGroups, new.shopGroups)
     // v2.11 (N48): the Buy ⚙ Lists + Sharing rows (list records themselves are data, not settings).
     add("Buy tab opens on", if (old.buyOpensOn == "CLASSIC") "Classic" else "Lists", if (new.buyOpensOn == "CLASSIC") "Classic" else "Lists")

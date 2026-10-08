@@ -234,7 +234,8 @@ fun SettingsScreen(filterKey: String? = null, embedded: Boolean = false) {
                         pendingDataImport = Backup.DataBlob(
                             items = blob.items, calls = blob.calls ?: emptyList(), places = blob.places,
                             tasksGroups = blob.settings.tasksGroups, shopGroups = blob.settings.shopGroups,
-                            learnTopics = blob.settings.learnTopics
+                            learnTopics = blob.settings.learnTopics,
+                            shopLists = blob.settings.shopLists, taskLists = blob.settings.taskLists
                         )
                     }
                 }
@@ -495,6 +496,10 @@ fun SettingsScreen(filterKey: String? = null, embedded: Boolean = false) {
             }
             if (vis("lists")) SettingsSection("Lists", { Icon(Icons.Filled.Checklist, null, tint = sectionTint("done")) },
                 expanded = openKey == "lists", onToggle = { toggleKey("lists") }) {
+                SettingRowSwitch("Lists before tasks", "Create or choose a list before adding a task", settings.globalTaskListsFirst) { on ->
+                    SettingsStore.update { it.copy(globalTaskListsFirst = on) }
+                }
+                Text("Tasks ⚙ can inherit this choice or override it.", style = MaterialTheme.typography.bodySmall, color = InkHint)
                 // v2.7 (N43): checkbox on every group header — global switch; per-tab override on each tab's ⚙.
                 SettingRowSwitch("Group header checkboxes", "Complete or restore a whole group from its header", settings.groupHeaderCheck) { on ->
                     SettingsStore.update { it.copy(groupHeaderCheck = on) }
@@ -902,21 +907,42 @@ fun SettingsScreen(filterKey: String? = null, embedded: Boolean = false) {
                 }
             }
 
-            if (vis("t-groups")) SettingsSection("Tasks Groups", { Icon(Icons.Filled.Folder, null, tint = sectionTint("groups")) },
+            if (vis("t-lists")) SettingsSection("Tasks opening view", { Icon(Icons.Filled.Checklist, null, tint = sectionTint("groups")) },
+                expanded = openKey == "t-lists", onToggle = { toggleKey("t-lists") }) {
+                Text("Lists before tasks", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                ChoiceChips(listOf("Inherit", "On", "Off"), when (settings.tasksListsFirst) { 1 -> 1; 0 -> 2; else -> 0 }, TasksPal.accent) { i ->
+                    SettingsStore.update { it.copy(tasksListsFirst = listOf(-1, 1, 0)[i]) }
+                }
+                Text(if (taskListsFirst(settings)) "Tasks opens on your lists. Add tasks inside a list."
+                    else "Tasks opens on the classic task view. Your lists stay saved.",
+                    style = MaterialTheme.typography.bodySmall, color = InkSubtle)
+            }
+            if (vis("t-groups")) SettingsSection("Task lists", { Icon(Icons.Filled.Folder, null, tint = sectionTint("groups")) },
                 expanded = openKey == "groups", onToggle = { toggleKey("groups") }) {
+                var editList by remember { mutableStateOf<TaskList?>(null) }
+                var editorOpen by remember { mutableStateOf(false) }
+                var deleteList by remember { mutableStateOf<TaskList?>(null) }
                 Text(
-                    "Deleting is blocked while any item still uses a name; renaming updates every item carrying it.",
+                    "Rename, choose an icon or pin a list. Deleting a list keeps its tasks and reminders in Unsorted.",
                     style = MaterialTheme.typography.bodySmall, color = InkSubtle
                 )
-                GroupListEditor("Tasks groups", settings.tasksGroups,
-                    inUseCount = { g -> ItemStore.items.value.count { it.tab == Tab.TASKS && it.group == g } },
-                    onAdd = { g -> SettingsStore.update { it.copy(tasksGroups = (it.tasksGroups + g).distinct()) } },
-                    onDelete = { g -> SettingsStore.update { it.copy(tasksGroups = it.tasksGroups - g) } },
-                    onRename = { o, n ->
-                        SettingsStore.update { it.copy(tasksGroups = it.tasksGroups.map { x -> if (x == o) n else x }.distinct()) }
-                        ItemStore.items.value.filter { it.tab == Tab.TASKS && it.group == o }
-                            .forEach { Engine.addOrUpdate(context, it.copy(group = n)) }
-                    })
+                TextButton(onClick = { editList = null; editorOpen = true }) { Text("+ New list", color = TasksPal.accent) }
+                liveTaskLists(settings.taskLists).sortedBy { it.name.lowercase() }.forEach { list ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${list.icon ?: "📋"} ${list.name}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        IconButton(onClick = { editList = list; editorOpen = true }) { Icon(Icons.Filled.Edit, "Edit list", tint = InkSubtle) }
+                        IconButton(onClick = { deleteList = list }) { Icon(Icons.Filled.Delete, "Delete list", tint = OverdueRed) }
+                    }
+                }
+                if (editorOpen) TaskListEditorSheet(editList, "", TasksPal, createLabel = "Create list", onDismiss = { editorOpen = false }) { editorOpen = false }
+                deleteList?.let { list ->
+                    AlertDialog(onDismissRequest = { deleteList = null }, title = { Text("Delete list?") },
+                        text = { Text("Delete “${list.name}”? Its tasks stay in Unsorted with their reminders and completion status.") },
+                        confirmButton = { TextButton(onClick = {
+                            if (TaskListStore.delete(context, list)) deleteList = null
+                        }) { Text("Delete list", color = OverdueRed) } },
+                        dismissButton = { TextButton(onClick = { deleteList = null }) { Text("Cancel") } })
+                }
             }
             if (vis("s-groups")) SettingsSection("Lists (order & names)", { Icon(Icons.Filled.Folder, null, tint = sectionTint("groups")) },
                 expanded = openKey == "groups", onToggle = { toggleKey("groups") }) {

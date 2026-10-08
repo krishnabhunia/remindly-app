@@ -220,9 +220,9 @@ data class Item(
     val staple: Boolean = false,            // Shop: one-tap staples
     val priceHistory: List<PricePoint> = emptyList(), // Shop: last 12 purchases
     val calEventId: Long? = null,           // calendar sync mapping
-    // Shop grouping label (v1.4)
+    // Task/Shop grouping label retained for older versions and Classic view.
     val group: String? = null,
-    // v2.11 (N48): the ShopList this Buy item belongs to (null = Unsorted). `group` keeps mirroring
+    // TaskList for Tasks, ShopList for Buy (null = Unsorted); IDs are scoped by the item's tab. `group` keeps mirroring
     // the list's NAME so older app versions and the Classic view still see the same grouping.
     val listId: Long? = null,
     // state
@@ -432,7 +432,7 @@ fun settingsSectionVisible(filterKey: String?, key: String): Boolean = when (fil
     // v2.04 (N36): "shop-mode" (Start in) is gone — the ☰ drawer owns the mode, always last used.
     null -> key in setOf("permissions", "updates", "maps", "api-keys", "alerts", "adding", "done", "lists", "sched", "gestures", "swipe", "clock",
         "appearance", "google", "backup", "errlog", "health", "tests", "bin", "details", "about")
-    "TASKS" -> key in setOf("t-groups", "t-add", "t-cal")
+    "TASKS" -> key in setOf("t-lists", "t-groups", "t-add", "t-cal")
     // v2.04 (N35): each Shop-mode tab owns its settings, like Tasks/Learn/Calls in Task mode.
     "BUY" -> key in setOf("b-lists", "shop-buy", "s-groups", "s-add", "pin", "sharing")   // v2.11 (N48): + Lists
     "SHOPS" -> key in setOf("shop-geo", "location")
@@ -464,9 +464,11 @@ fun resetSettingsFor(s: AppSettings, filterKey: String?): AppSettings {
             // v2.02 (N33): provider/limit reset; API keys are NEVER touched by a reset (explicit Remove only)
             mapProvider = d.mapProvider, geoLimit = d.geoLimit, indiaBilling = d.indiaBilling,
             defaultRadius = d.defaultRadius,
+            globalTaskListsFirst = d.globalTaskListsFirst,
             groupHeaderCheck = d.groupHeaderCheck          // v2.7 (N43)
         )
         "TASKS" -> s.copy(
+            tasksListsFirst = d.tasksListsFirst, taskListSort = d.taskListSort,
             tasksGroupCheck = d.tasksGroupCheck,           // v2.7 (N43)
             tasksAddFull = d.tasksAddFull, tasksNewDueMode = d.tasksNewDueMode,
             tasksNewDueDays = d.tasksNewDueDays, tasksNewDueMinutes = d.tasksNewDueMinutes,
@@ -954,9 +956,14 @@ data class CallReminder(
 }
 
 data class AppSettings(
-    val ver: Int = 43,
+    val ver: Int = 44,
+    // Task lists are data; the global preference and Task override choose the opening view.
+    val taskLists: List<TaskList> = emptyList(),
+    val globalTaskListsFirst: Boolean = true,
+    val tasksListsFirst: Int = -1,              // -1 inherit, 0 classic tasks, 1 lists first
+    val taskListSort: String = "RECENT",        // RECENT | AZ
     // v2.11 (N48): Buy tab LISTS FIRST. The list records ride the settings doc (already synced and
-    // backed up); Sync merges them per id, latest-wins. Buy-only settings (no other tab has lists).
+    // backed up); Sync merges them per id, latest-wins. These settings affect Buy only.
     val shopLists: List<ShopList> = emptyList(),
     val buyOpensOn: String = "LISTS",           // LISTS | CLASSIC (today's flat view)
     val buyReopenLast: Boolean = false,         // skip the Lists screen and reopen the last list
@@ -1224,6 +1231,13 @@ data class BackupBlob(
     val calls: List<CallReminder>? = emptyList(),
     val settings: AppSettings = AppSettings()
 )
+
+/** Per-Task choice overrides the global opening-view preference. */
+fun taskListsFirst(settings: AppSettings): Boolean = when (settings.tasksListsFirst) {
+    0 -> false
+    1 -> true
+    else -> settings.globalTaskListsFirst
+}
 
 // ---------------------------------------------------------------- ids
 
@@ -2056,6 +2070,9 @@ fun purgeCutoff(now: Long): Long = now - BIN_KEEP_MS
 
 @Suppress("USELESS_ELVIS")
 fun healSettings(a: AppSettings): AppSettings = a.copy(
+    taskLists = (a.taskLists ?: emptyList()).mapNotNull { runCatching { healTaskList(it) }.getOrNull() },
+    tasksListsFirst = a.tasksListsFirst.takeIf { it in -1..1 } ?: -1,
+    taskListSort = a.taskListSort?.takeIf { it in setOf("RECENT", "AZ") } ?: "RECENT",
     // v2.02 (N33): provider + limit coats (null String on pre-37 JSON; limit within the free cap).
     mapProvider = mapProviderNormalized(a.mapProvider),
     geoLimit = a.geoLimit.coerceIn(0, freeCapFor(a.indiaBilling)),

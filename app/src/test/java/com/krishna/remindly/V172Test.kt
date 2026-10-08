@@ -106,7 +106,7 @@ class V172Test {
     }
 
     @Test fun healSettings_schemaVersionUntouched() {
-        assertEquals(43, healSettings(AppSettings()).ver)
+        assertEquals(44, healSettings(AppSettings()).ver)
     }
 
     // ---------------- the exact reported bug ----------------

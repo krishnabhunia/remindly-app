@@ -138,7 +138,7 @@ class V211Test {
         assertEquals("LISTS", h.buyOpensOn); assertEquals("RECENT", h.buyListSort); assertEquals("SHOP", h.buyInnerSort)
         assertEquals(":-", h.shareHeadingSuffix); assertEquals("WHATSAPP", h.shareWaApp)
         assertTrue(h.shopLists.isEmpty())
-        assertEquals(43, AppSettings().ver)
+        assertEquals(44, AppSettings().ver)
     }
 
     /** Simulates Gson on a pre-43 file: the new reference fields come back null. */

@@ -493,3 +493,16 @@ J2 ☐ Same phone: open the Shared hub — the last list row in Receive AND in S
 J3 ☐ Calls tab → edit a reminder (the bottom sheet): its last row (the Add row) now clears the
       nav buttons too — this sheet was also missing the spacer and got fixed in v1.88.
 J4 ☐ GESTURE-NAV phone: all three sheets show a comfortable bottom gap, nothing cramped.
+# Approved Tasks lists-first change (unreleased PR, 8 October 2026)
+
+For every persisted change below: act → verify → save/close and reopen → verify → reboot → verify. Check reminders again after reboot. Use both gesture navigation and three-button navigation, plus a large font size.
+
+- ☐ Upgrade with existing Task groups, an empty group and ungrouped active/done tasks. Groups become lists once; Unsorted keeps ungrouped tasks; Buy lists are unchanged.
+- ☐ Create a list with an icon and pin, then add a task. Its list is prefilled; reminder, priority and notes controls retain their behavior. Search and Active/Done counts reflect the saved task.
+- ☐ Rename/change icon/unpin through home, detail and Tasks settings. Tasks stay in the same list after reopen/reboot.
+- ☐ Move an existing task through its List picker. Reminders, recurrence, notes and Done status stay intact. Edit an old Unsorted task without assigning a list.
+- ☐ Unsorted has no new-task composer. Duplicate an Unsorted task: a real list is required before saving. Delete a list: tasks move to Unsorted and scheduled reminders still fire.
+- ☐ Export/import data containing an empty list and a deleted list. Empty lists remain; deleted lists do not reappear. Repeat with a legacy grouped backup.
+- ☐ Sync create/rename/delete between two devices, including a device with older preferences. No duplicate lists or resurrected deleted lists; tasks retain their reminder state.
+- ☐ Global Lists before tasks and Tasks Inherit/On/Off all round-trip. Classic mode retains tasks and lists; switch back to lists-first and verify membership. Discard/reset preferences retain lists.
+- ☐ Share a task into the app. Home asks to choose a list; opening a list prefills the task editor there. Dismiss clears the pending share. Existing Tasks shared inbox is accessible.
