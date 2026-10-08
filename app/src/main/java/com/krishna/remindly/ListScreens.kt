@@ -85,6 +85,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -172,8 +173,12 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     val context = LocalContext.current
     val allItems by ItemStore.items.collectAsState()
     val settings by SettingsStore.s.collectAsState()
-    val inList = tab == Tab.SHOP && openList != null
-    val theList: ShopList? = if (inList) liveLists(settings.shopLists).firstOrNull { it.id == openList } else null
+    val inShopList = tab == Tab.SHOP && openList != null
+    val inTaskList = tab == Tab.TASKS && openList != null
+    val theList: ShopList? = if (inShopList) liveLists(settings.shopLists).firstOrNull { it.id == openList } else null
+    val taskList: TaskList? = if (inTaskList) liveTaskLists(settings.taskLists).firstOrNull { it.id == openList } else null
+    val taskSort = if (inTaskList && settings.tasksSort == "GROUP") "DATE" else settings.tasksSort
+    val canCreateHere = tab != Tab.TASKS || !taskListsFirst(settings) || taskList != null
     // Items added OUTSIDE a real list (Classic, Unsorted is excluded on purpose, Buy Now) land in the default list.
     val addList: ShopList? = theList ?: if (tab == Tab.SHOP && openList != UNSORTED_LIST_ID)
         settings.shopDefaultListId?.let { d -> liveLists(settings.shopLists).firstOrNull { it.id == d } } else null
@@ -190,9 +195,9 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     var quickPrefill by remember { mutableStateOf<String?>(null) }
     var sharePrefill by remember { mutableStateOf<ShareInbox.Payload?>(null) }
     val shareP by ShareInbox.pending.collectAsState()
-    LaunchedEffect(shareP) {
+    LaunchedEffect(shareP, openList, isDone, canCreateHere) {
         val p = shareP ?: return@LaunchedEffect
-        if (p.tab == tab && !isDone) {
+        if (p.tab == tab && !isDone && canCreateHere) {
             sharePrefill = p
             ShareInbox.pending.value = null
             editing = null
@@ -205,8 +210,11 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     // Quick add bar (always visible on Active pages since v1.4)
     var quickText by remember { mutableStateOf("") }
     // v2.11 (N48): inside a list the duplicate check is the LIST's; another list holding it warns too (L4).
-    val quickDup = if (inList) dupActiveMatch(itemsInList(ItemStore.items.value, openList!!, settings.shopLists), tab, quickText)
-                   else dupActiveMatch(ItemStore.items.value, tab, quickText)
+    val quickDup = when {
+        inShopList -> dupActiveMatch(itemsInList(allItems, openList!!, settings.shopLists), tab, quickText)
+        inTaskList -> dupActiveMatch(tasksInList(allItems, openList!!, settings.taskLists), tab, quickText)
+        else -> dupActiveMatch(allItems, tab, quickText)
+    }
     val quickOther = if (theList != null && settings.buyDupWarn && !quickDup)
         otherListHolding(ItemStore.items.value, quickText, theList.id, settings.shopLists) else null
     var quickRecent by remember { mutableStateOf<Item?>(null) }
@@ -263,7 +271,11 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     // v1.40 bug#1/#2: exclude soft-deleted items so the "active · done" header counts only
     // what's actually in the list.
     val tabItems = allItems.filter { it.tab == tab && it.deletedAt == null }
-        .let { if (inList) itemsInList(it, openList!!, settings.shopLists) else it }   // v2.11 (N48)
+        .let { items -> when {
+            inShopList -> itemsInList(items, openList!!, settings.shopLists)
+            inTaskList -> tasksInList(items, openList!!, settings.taskLists)
+            else -> items
+        } }
     // v1.79 (Q11): the header used to count tabItems while the list applied two further filters,
     // so "1 active" could sit above an empty screen. Header and list are now two projections of
     // ONE pipeline — any filter added later is picked up by both automatically.
@@ -275,7 +287,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     else scopeOf(isDone)
     val groups = buildYearGroups(visible, isDone, { it.createdAt }) { groupBasis(it, isDone) }
 
-    val fKey = "${tab.name}-${if (isDone) "D" else "A"}"
+    val fKey = "${tab.name}-${if (isDone) "D" else "A"}" + (openList?.let { "-$it" } ?: "")
     var collapsedYears by remember(fKey) { mutableStateOf(UiStore.collapsedFor("cy-$fKey")) }
     var collapsedMonths by remember(fKey) { mutableStateOf(UiStore.collapsedFor("cm-$fKey")) }
     var collapsedDays by remember(fKey) { mutableStateOf(UiStore.collapsedFor("cd-$fKey")) }
@@ -321,7 +333,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
 
     // v1.51: hoisted so the add affordances can be hidden in the read-only Calendar view.
     // v1.61: the addFull switch is gone — the unified bar (morphing +/✓ circle) serves every tab.
-    val calendarMode = tab == Tab.TASKS && sortOf(settings, tab) == "CALENDAR"
+    val calendarMode = tab == Tab.TASKS && taskSort == "CALENDAR"
     // v1.87 (N17): sharing state — group picked for sending, and the Sent|Receive hub.
     val shareOk = shareEnabledFor(tab, settings)
     var shareGroup by remember { mutableStateOf<Pair<String, List<Item>>?>(null) }
@@ -346,6 +358,11 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
     fun quickAddNow() {
         val t = quickText.trim()
         if (t.isEmpty()) return
+        val targetTaskList = if (tab == Tab.TASKS) TaskListStore.get(taskList?.id) else null
+        if (!taskEditorListAllowed(SettingsStore.s.value, tab, targetTaskList?.id, existing = null)) {
+            Feedback.toast(context, "Create or choose a list before adding a task")
+            return
+        }
         val due = defaultNewDue(tab, settings)
         Engine.addOrUpdate(
             context,
@@ -357,8 +374,8 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                 personal = tab == Tab.SHOP && (personalFilter || addList?.personal == true),
                 // v2.11 (N48): the open list (or the default list outside one) replaces N45's default group;
                 // a "recently bought in this list" pick brings its quantity, unit, product and shop along.
-                group = if (tab == Tab.SHOP) addList?.name else null,
-                listId = if (tab == Tab.SHOP) addList?.id else null,
+                group = when (tab) { Tab.SHOP -> addList?.name; Tab.TASKS -> targetTaskList?.name; else -> null },
+                listId = when (tab) { Tab.SHOP -> addList?.id; Tab.TASKS -> targetTaskList?.id; else -> null },
                 productId = quickProduct?.id ?: quickRecent?.productId,
                 quantity = quickRecent?.quantity, unit = quickRecent?.unit,
                 shopName = if (tab == Tab.SHOP) (quickRecent?.shopName ?: addList?.usualShopId?.let { ShopStore.get(it)?.name }) else null,
@@ -388,6 +405,8 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = when {
+                    calendarMode -> "From Calendar"
+                    taskList != null -> "${taskList.icon ?: "📋"} ${taskList.name}"
                     theList != null -> (theList.icon?.let { "$it " } ?: "") + theList.name
                     openList == UNSORTED_LIST_ID -> "Unsorted"
                     openList == BUY_NOW_LIST_ID -> "Buy Now"
@@ -403,7 +422,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                         else -> "$calEventCount event${if (calEventCount == 1) "" else "s"} · " +
                             (if (isDone) "last $d days" else "next $d days")
                     }
-                } else if (inList) {
+                } else if (inShopList) {
                     "${scopeOf(false).size} to buy · ${scopeOf(true).size} done"
                 } else {
                     "${scopeOf(false).size} active · ${scopeOf(true).size} done"
@@ -417,7 +436,15 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                     } else ModeDrawerButton()
                 },
                 trailing = {
-                  if (inList && openList != BUY_NOW_LIST_ID) {
+                  if (inTaskList) {
+                    IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) searchQ = "" }) {
+                        Icon(Icons.Filled.Search, "Search tasks", tint = Color.White)
+                    }
+                    if (taskList != null) IconButton(onClick = { listMenuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, "List options", tint = Color.White)
+                    }
+                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Task settings", tint = Color.White) }
+                  } else if (inShopList && openList != BUY_NOW_LIST_ID) {
                     // v2.11 (N48 S1): Share (preview sheet) + the one-tap WhatsApp icon, then ⋮.
                     val shareName = theList?.name ?: "Unsorted"
                     IconButton(onClick = { listShareSheet.value = true }) { Icon(Icons.Filled.Share, "Share list", tint = Color.White) }
@@ -488,7 +515,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                                 compact = tab == Tab.SHOP || calendarMode,
                                 labels = toggleLabels(calendarMode)
                             ) { onSwitchView(it) }
-                            if (shareOk && !inList) {
+                            if (shareOk && !inShopList && !inTaskList) {
                                 Spacer(Modifier.width(6.dp))
                                 // v1.87 (N17): "Via Shared" — Q9: no push; this dot IS the badge.
                                 SharedHubButton(sharePendingCount, tint = Color.White) { showSharedHub = true }
@@ -519,7 +546,14 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                             // v1.9: sort control is a dropdown, right-aligned on the same row.
                             val altLabel = if (tab == Tab.LEARN) "By Topic" else "By Group"
                             val curSort = sortOf(settings, tab)
-                            if (inList) {
+                            if (inTaskList) {
+                                val keys = listOf("DATE", "PRIORITY", "NONE", "CALENDAR")
+                                HeaderDropdown(icon = Icons.Filled.SwapVert,
+                                    options = listOf("By Date", "By Priority", "No Group", "From Calendar"),
+                                    selected = keys.indexOf(taskSort).coerceAtLeast(0)) { i ->
+                                    SettingsStore.update { it.copy(tasksSort = keys[i], tasksGroupByGroup = false) }
+                                }
+                            } else if (inShopList) {
                                 // v2.11 (N48): inside a list — every item is in the same list, so "By Group" gives
                                 // way to By Shop / By Category (+ Priority, Date, none). Buy Now groups by list.
                                 if (openList != BUY_NOW_LIST_ID) {
@@ -568,6 +602,19 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
 
             // v1.71 (N2): live degrades surface here, not only in Error Logs.
             DegradeBanner(tab) { onOpenSettings() }
+            if (inTaskList && !calendarMode && tabItems.isNotEmpty()) {
+                val completed = tabItems.count { it.done }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("$completed of ${tabItems.size} completed", style = MaterialTheme.typography.bodySmall,
+                            color = InkSubtle, modifier = Modifier.weight(1f))
+                        Text("${100 * completed / tabItems.size}%", style = MaterialTheme.typography.bodySmall, color = InkSubtle)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(progress = { completed.toFloat() / tabItems.size }, color = pal.accent,
+                        trackColor = pal.chipBg, modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)))
+                }
+            }
             undoBatch?.let { batch ->
                 Row(verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
@@ -619,6 +666,8 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                     when {
                         view == ListView.BUY_NOW -> "Everything here is done 🎉  Tap Hide ✕ to close Buy Now."
                         isDone -> "Nothing in Done yet."
+                        inTaskList && taskList == null -> "Every task has a list. Unsorted is empty."
+                        taskList != null -> "No tasks in ${taskList.name} yet. Add your first task below."
                         tab == Tab.TASKS -> "No tasks yet. Tap + to add your first one."
                         theList != null -> "Nothing to buy on ${theList.name} yet — add items below."
                         openList == UNSORTED_LIST_ID -> "Nothing unsorted. Every item has a list."
@@ -631,8 +680,9 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
 
             // v2.11 (N48): inside a list the Buy inner sort applies; the cross-list Buy Now view groups by LIST.
             val sortMode = when {
-                openList == BUY_NOW_LIST_ID -> "LIST"
-                inList -> settings.buyInnerSort
+                inShopList && openList == BUY_NOW_LIST_ID -> "LIST"
+                inShopList -> settings.buyInnerSort
+                inTaskList -> taskSort
                 else -> sortOf(settings, tab)
             }
             // v1.24 item 7: "No Group" is one flat list in insertion order — first added on top.
@@ -804,7 +854,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
             }
         }
 
-        if (!isDone && !calendarMode) {
+        if (!isDone && !calendarMode && canCreateHere && !(inTaskList && taskList == null)) {
             // v1.60: WhatsApp-style quick-add (Krishna, with screenshot) — borderless text on a
             // full pill, subtle leading icon, ✕ inside, and the add action detached as a filled
             // accent circle. Dark mode finally gets a real dark surface here (was hardcoded white).
@@ -816,7 +866,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
             ) {
                 // The borderless pill has no supportingText slot — the warning lives above the bar.
                 if (quickDup) Text(
-                    if (theList != null) "Already on this list" else "Already on your list",
+                    if (theList != null || taskList != null) "Already on this list" else "Already on your list",
                     color = DangerSoft,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(start = 18.dp, bottom = 2.dp)
@@ -847,6 +897,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                                 placeholder = {
                                     Text(
                                         when {
+                                            taskList != null -> "Add to ${taskList.name}…"
                                             theList != null -> "Add to ${theList.name}…"
                                             tab == Tab.SHOP && personalFilter -> "Quick add personal item…"
                                             tab == Tab.SHOP -> "Quick add item…"
@@ -946,7 +997,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
 
     if (showSheet) {
         // v1.8: navigation order mirrors the on-screen list — date order, or group order in group mode.
-        val navSort = sortOf(settings, tab)
+        val navSort = if (inTaskList) taskSort else sortOf(settings, tab)
         val ordered = if (navSort == "GROUP")
             visible.sortedWith(compareBy(
                 { ((if (tab == Tab.LEARN) it.topic else it.group) ?: "\uffff").lowercase() },
@@ -965,6 +1016,7 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
                 prefillUrl = sharePrefill?.url,
                 prefillPlatform = sharePrefill?.platform,
                 listPrefill = if (tab == Tab.SHOP) addList else null,
+                taskListPrefill = taskList,
                 prevItem = if (idx > 0) ordered[idx - 1] else null,
                 nextItem = if (idx >= 0 && idx < ordered.size - 1) ordered[idx + 1] else null,
                 onNav = { nxt -> editing = nxt },
@@ -1137,6 +1189,10 @@ fun ListPage(tab: Tab, isDone: Boolean, onSwitchDone: (Boolean) -> Unit,
         if (listDeleteOpen) DeleteListSheet(l, pal) { listDeleteOpen = false }
         if (listMergeOpen) MergeListSheet(l, pal) { listMergeOpen = false }
     }
+    taskList?.let { list ->
+        if (listMenuOpen) TaskListOptionsSheet(list, onDismiss = { listMenuOpen = false },
+            onDeleted = { onBackToLists?.invoke() })
+    }
     deleteTarget?.let { item ->
         ConfirmDialog(
             title = "Delete permanently?",
@@ -1237,6 +1293,7 @@ fun AddEditSheet(
     prefillPlatform: String? = null,
     // v2.11 (N48): a NEW Buy item opened from inside a list lands in that list (shop + Private follow it).
     listPrefill: ShopList? = null,
+    taskListPrefill: TaskList? = null,
     prevItem: Item? = null,
     nextItem: Item? = null,
     onNav: ((Item) -> Unit)? = null,
@@ -1288,7 +1345,15 @@ fun AddEditSheet(
     var showRepeat by remember { mutableStateOf(false) }
     var priority by remember { mutableStateOf<Priority?>(existing?.priority ?: Priority.MEDIUM) }
     var alertType by remember(existing?.id) { mutableStateOf(existing?.alertType ?: "N") }   // v1.68
-    var group by remember { mutableStateOf(existing?.group ?: (if (tab == Tab.SHOP) listPrefill?.name else null) ?: "") }
+    var group by remember { mutableStateOf(existing?.group ?: when (tab) {
+        Tab.SHOP -> listPrefill?.name
+        Tab.TASKS -> taskListPrefill?.name
+        else -> null
+    } ?: "") }
+    var selectedTaskListId by remember {
+        mutableStateOf(existing?.let { taskListIdOf(it, settings.taskLists) } ?: if (existing == null) taskListPrefill?.id else null)
+    }
+    var taskListError by remember { mutableStateOf(false) }
     var topic by remember { mutableStateOf(existing?.topic ?: "") }
 
     var quantity by remember { mutableStateOf(existing?.quantity ?: "") }
@@ -1308,8 +1373,14 @@ fun AddEditSheet(
     var titleError by remember { mutableStateOf(false) }
     var showSetPin by remember { mutableStateOf(false) }
 
-    val buildCurrent: () -> Item? = build@{
+    val buildCurrent: (Boolean) -> Item? = build@{ duplicate ->
         if (title.isBlank()) { titleError = true; return@build null }
+        val currentSettings = SettingsStore.s.value
+        val selectedTaskList = liveTaskLists(currentSettings.taskLists).firstOrNull { it.id == selectedTaskListId }
+        if (!taskEditorListAllowed(currentSettings, tab, selectedTaskList?.id, existing, duplicate)) {
+            taskListError = true
+            return@build null
+        }
         val lapseValue = lapseText.toIntOrNull()?.takeIf { it > 0 }
             ?.coerceAtMost(if (lapseUnit == LapseUnit.MONTHS) 12 else 999)
         // v1.85 (N16): rebase on the LIVE record. `existing` is the open-time snapshot; a full
@@ -1372,7 +1443,11 @@ fun AddEditSheet(
             staple = stapleOn,
             priority = priority,
             alertType = alertType,
-            group = if (tab == Tab.SHOP || tab == Tab.TASKS) group.trim().ifBlank { null } else base.group,
+            group = when (tab) {
+                Tab.SHOP -> group.trim().ifBlank { null }
+                Tab.TASKS -> selectedTaskList?.name
+                else -> base.group
+            },
             topic = if (tab == Tab.LEARN) topic.trim().ifBlank { null } else base.topic,
             quantity = if (tab == Tab.SHOP) quantity.trim().ifBlank { null } else base.quantity,
             price = if (tab == Tab.SHOP) price.trim().ifBlank { null } else base.price,
@@ -1389,7 +1464,11 @@ fun AddEditSheet(
                 }
             } else base.returnAt,
             // v2.11 (N48): the List field IS the group; a Private list makes the item Personal.
-            listId = if (tab == Tab.SHOP) listNamed(settings.shopLists, group)?.id else base.listId,
+            listId = when (tab) {
+                Tab.SHOP -> listNamed(currentSettings.shopLists, group)?.id
+                Tab.TASKS -> selectedTaskList?.id
+                else -> base.listId
+            },
             personal = if (tab == Tab.SHOP) (personal || listNamed(settings.shopLists, group)?.personal == true) else false,
             platform = if (tab == Tab.LEARN) platform.trim().ifBlank { null } else base.platform,
             url = if (tab == Tab.LEARN) url.trim().ifBlank { null } else base.url
@@ -1437,14 +1516,18 @@ fun AddEditSheet(
 
             when (tab) {
                 Tab.TASKS -> {
-                    GroupDropdown("Group (optional)", group, settings.tasksGroups,
-                        onPick = { group = it },
-                        onAddNew = { g ->
-                            SettingsStore.update { it.copy(tasksGroups = (it.tasksGroups + g).distinct()) }
-                            group = g
+                    if (taskListsFirst(settings)) TaskEditorListDropdown(
+                        lists = liveTaskLists(settings.taskLists), selectedId = selectedTaskListId,
+                        existingUnsorted = existing != null && selectedTaskListId == null,
+                        isError = taskListError,
+                        onPick = { list -> selectedTaskListId = list.id; group = list.name; taskListError = false }
+                    ) else GroupDropdown("Group (optional)", group, liveTaskLists(settings.taskLists).map { it.name },
+                        onPick = { name -> group = name; selectedTaskListId = taskListNamed(settings.taskLists, name)?.id },
+                        onAddNew = { name ->
+                            val list = TaskListStore.create(context, name, null) ?: taskListNamed(TaskListStore.all(), name)
+                            if (list != null) { group = list.name; selectedTaskListId = list.id; taskListError = false }
+                            else Feedback.toast(context, "Choose a different list name")
                         })
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    }
                     ScheduleBox(
                         schedKind, showNone = true, { schedKind = it },
                         dueDate, { dueDate = it }, dueTimeMin, { dueTimeMin = it },
@@ -1765,7 +1848,7 @@ fun AddEditSheet(
                         .height(50.dp)
                 ) { Text("Cancel", fontWeight = FontWeight.Bold, color = InkSubtle, maxLines = 1, style = MaterialTheme.typography.bodyLarge.fs(fsB)) }
                 Button(
-                    onClick = { buildCurrent()?.let(onSave) },
+                    onClick = { buildCurrent(false)?.let(onSave) },
                     colors = ButtonDefaults.buttonColors(containerColor = pal.accent),
                     modifier = Modifier
                         .weight(1f)
@@ -1785,7 +1868,7 @@ fun AddEditSheet(
                 // v1.8: Save/Discard & Previous/Next — order mirrors the on-screen list.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
-                        onClick = { buildCurrent()?.let { onSaveOnly?.invoke(it); prevItem?.let { p -> onNav?.invoke(p) } } },
+                        onClick = { buildCurrent(false)?.let { onSaveOnly?.invoke(it); prevItem?.let { p -> onNav?.invoke(p) } } },
                         enabled = prevItem != null && onNav != null,
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
@@ -1793,7 +1876,7 @@ fun AddEditSheet(
                         Text("Save & Prev", color = pal.accent, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                     OutlinedButton(
-                        onClick = { buildCurrent()?.let { onSaveOnly?.invoke(it); nextItem?.let { n -> onNav?.invoke(n) } } },
+                        onClick = { buildCurrent(false)?.let { onSaveOnly?.invoke(it); nextItem?.let { n -> onNav?.invoke(n) } } },
                         enabled = nextItem != null && onNav != null,
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
@@ -1822,7 +1905,7 @@ fun AddEditSheet(
                 if (onDuplicate != null) {
                     OutlinedButton(
                         onClick = {
-                            buildCurrent()?.let { cur ->
+                            buildCurrent(true)?.let { cur ->
                                 onDuplicate(cur.copy(id = Ids.next(), title = cur.title + " (copy)", done = false, doneAt = null, returnAt = null))
                             }
                         },
@@ -2656,6 +2739,36 @@ private fun ShopPicker(value: String, onPick: (String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun TaskEditorListDropdown(
+    lists: List<TaskList>, selectedId: Long?, existingUnsorted: Boolean, isError: Boolean,
+    onPick: (TaskList) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = lists.firstOrNull { it.id == selectedId }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it && lists.isNotEmpty() }) {
+        OutlinedTextField(
+            value = selected?.let { "${it.icon ?: "📋"} ${it.name}" } ?: if (existingUnsorted) "Unsorted" else "Choose a list",
+            onValueChange = {}, readOnly = true, label = { Text("List") }, isError = isError,
+            supportingText = {
+                when {
+                    isError -> Text("Choose an existing list before saving a new task.", color = OverdueRed)
+                    lists.isEmpty() -> Text("Create a list from the Tasks page first.")
+                    existingUnsorted -> Text("This task stays in Unsorted until you choose a list.")
+                }
+            },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            lists.sortedBy { it.name.lowercase() }.forEach { list ->
+                DropdownMenuItem(text = { Text("${list.icon ?: "📋"} ${list.name}") }, onClick = { onPick(list); expanded = false })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun GroupDropdown(
     label: String,
     value: String,
@@ -3231,6 +3344,11 @@ fun TripSheet(pal: TabPalette, personal: Boolean, onDismiss: () -> Unit) {
 private fun GroupMenuSheet(tab: Tab, name: String, items: List<Item>, pal: TabPalette, onShare: () -> Unit, onCompleteAll: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val settings by SettingsStore.s.collectAsState()
+    val taskList = if (tab == Tab.TASKS) taskListNamed(settings.taskLists, name) else null
+    if (taskList != null) {
+        TaskListOptionsSheet(taskList, onDismiss = onDismiss, onShare = onShare, onCompleteAll = onCompleteAll)
+        return
+    }
     var mode by remember { mutableStateOf("menu") }
     var text by remember { mutableStateOf(name) }
     val icons = listOf("🛒", "🏠", "💊", "🎁", "🧹", "🍎", "👕", "📚", "🔧", "🐾", "🎉", "✈️", "💼", "🍼", "🧴", "⭐")

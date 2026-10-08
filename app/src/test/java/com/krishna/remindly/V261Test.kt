@@ -84,6 +84,6 @@ class V261Test {
     }
 
     @Test fun v261_schemaUnchanged_thisIsABugFixOnly() {
-        assertEquals(43, AppSettings().ver)
+        assertEquals(44, AppSettings().ver)
     }
 }

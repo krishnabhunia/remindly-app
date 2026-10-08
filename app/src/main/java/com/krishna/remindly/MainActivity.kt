@@ -786,14 +786,17 @@ private fun ListSection(tab: Tab, onOpenShops: () -> Unit = {}, onOpenSettings: 
     }
     // v2.11 (N48): Buy opens on the LISTS screen (unless "Classic"); a list opens inside it. The
     // open list is per-device view state (UiStore) so "Reopen last list" can land straight in it.
-    val listsMode = tab == Tab.SHOP && settings.buyOpensOn == "LISTS"
+    val shopListsMode = tab == Tab.SHOP && settings.buyOpensOn == "LISTS"
+    val tasksListsMode = tab == Tab.TASKS && taskListsFirst(settings)
+    val listsMode = shopListsMode || tasksListsMode
     val personalUnlocked by Engine.personalUnlocked.collectAsState()
-    var openListId by rememberSaveable { mutableStateOf(if (listsMode && settings.buyReopenLast) ui.openListId else null) }
+    var openListId by rememberSaveable(tab.name) { mutableStateOf(if (shopListsMode && settings.buyReopenLast) ui.openListId else null) }
     val openList: Long? = openListId?.takeIf { id ->
-        id == UNSORTED_LIST_ID || (id == BUY_NOW_LIST_ID && buyNowShop != null) ||
+        id == UNSORTED_LIST_ID || if (tasksListsMode) liveTaskLists(settings.taskLists).any { it.id == id }
+        else (id == BUY_NOW_LIST_ID && buyNowShop != null) ||
             liveLists(settings.shopLists).any { it.id == id && (!it.personal || personalUnlocked || !PinStore.isSet()) }
     }
-    LaunchedEffect(openList, listsMode) { if (listsMode) UiStore.update { it.copy(openListId = openList) } }
+    LaunchedEffect(openList, shopListsMode) { if (shopListsMode) UiStore.update { it.copy(openListId = openList) } }
     var view by remember { mutableStateOf(if (isDone) ListView.DONE else ListView.ACTIVE) }
     LaunchedEffect(buyNowShop?.id, ui.buyNowAt) {
         if (buyNowShop != null) { view = ListView.BUY_NOW; isDone = false; if (listsMode) openListId = BUY_NOW_LIST_ID }   // arm/replace → show it
@@ -809,10 +812,18 @@ private fun ListSection(tab: Tab, onOpenShops: () -> Unit = {}, onOpenSettings: 
     }
     // v2.11 (N48 G2): a Private list shows its (Personal) items; any other list opens on General.
     LaunchedEffect(openList) {
-        if (listsMode) personalFilter = liveLists(settings.shopLists).firstOrNull { it.id == openList }?.personal == true
+        if (shopListsMode) personalFilter = liveLists(settings.shopLists).firstOrNull { it.id == openList }?.personal == true
     }
     androidx.activity.compose.BackHandler(enabled = listsMode && openList != null) { openListId = null }
     if (listsMode && openList == null) {
+        if (tasksListsMode) {
+            TaskListsScreen(onOpenList = { id ->
+                openListId = id
+                isDone = false
+                view = ListView.ACTIVE
+            }, onOpenGear = onOpenSettings)
+            return
+        }
         ShopListsScreen(
             onOpenList = { id ->
                 openListId = id

@@ -448,4 +448,6 @@ fun shareOrderFor(items: List<Item>, mode: String, products: List<Product>): Lis
 /** Discarding a settings page restores its snapshot — but the LIST RECORDS are data (items point
  *  at them), so the current ones are kept and the mirror is rebuilt from them. */
 fun keepListData(snapshot: AppSettings, current: AppSettings): AppSettings =
-    mirrorListsIntoSettings(snapshot.copy(shopLists = current.shopLists))
+    mirrorTaskListsIntoSettings(mirrorListsIntoSettings(snapshot.copy(
+        shopLists = current.shopLists, taskLists = current.taskLists
+    )))

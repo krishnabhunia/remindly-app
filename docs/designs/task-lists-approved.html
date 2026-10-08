@@ -1,0 +1,314 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<style>
+#remindly-task-lists .rl-stage{min-height:760px;padding:20px 12px;display:flex;justify-content:center;align-items:flex-start}
+#remindly-task-lists .rl-phone{
+  --rl-bg:light-dark(#F6F6FB,#14141B);--rl-card:light-dark(#FFFFFF,#1F1F28);--rl-ink:light-dark(#1B1B26,#ECECF4);--rl-sub:light-dark(#6B6B80,#A8A8BC);
+  --rl-line:light-dark(#DEDEE9,#393946);--rl-soft:light-dark(#EDEAFD,#2A2740);--rl-on-soft:light-dark(#3A2FA8,#C9C2F5);--rl-accent:light-dark(#5B4FE8,#8A7DF5);
+  --rl-on-accent:light-dark(#FFFFFF,#14141B);--rl-header-ink:#FFFFFF;--rl-red:light-dark(#B3261E,#FFB4AB);--rl-red-soft:light-dark(#FBE2E2,#421B1B);
+  --rl-shadow:light-dark(#1B1B2614,#00000040);--rl-overlay:light-dark(#14141B50,#00000080);--rl-green:light-dark(#1B6F4F,#9FE8CF);
+  font-family:Roboto,system-ui,sans-serif;font-size:14px;line-height:1.4;color:var(--rl-ink);background:var(--rl-bg);width:100%;max-width:390px;min-height:704px;
+  border:1px solid var(--rl-line);border-radius:24px;box-shadow:0 10px 30px var(--rl-shadow);display:flex;flex-direction:column;position:relative;isolation:isolate;
+}
+#remindly-task-lists .rl-phone *{box-sizing:border-box}
+#remindly-task-lists .rl-phone button,#remindly-task-lists .rl-phone input,#remindly-task-lists .rl-phone select,#remindly-task-lists .rl-phone textarea{font:inherit;color:inherit}
+#remindly-task-lists .rl-phone button{border:0;background:none;padding:0}
+#remindly-task-lists .rl-phone button:disabled{opacity:.45;cursor:default}
+#remindly-task-lists .rl-head{color:var(--rl-header-ink);background:linear-gradient(120deg,#4C3FD6,#8E5BF0);border-radius:23px 23px 0 0;padding:12px 12px 16px}
+#remindly-task-lists .rl-status{display:flex;justify-content:space-between;align-items:center;padding:0 8px 8px;font-size:11px;font-weight:500}
+#remindly-task-lists .rl-status-icons{display:flex;align-items:center;gap:4px}
+#remindly-task-lists .rl-status-icons svg{width:12px;height:12px}
+#remindly-task-lists .rl-head-row{display:flex;gap:6px;align-items:center;min-width:0}
+#remindly-task-lists .rl-head-copy{flex:1;min-width:0}
+#remindly-task-lists .rl-title{font-size:21px;line-height:1.2;font-weight:700;overflow-wrap:anywhere}
+#remindly-task-lists .rl-subtitle{font-size:12px;opacity:.92;margin-top:4px}
+#remindly-task-lists .rl-icon-btn{width:40px;min-height:44px;display:flex;justify-content:center;align-items:center;flex:none;border-radius:12px}
+#remindly-task-lists .rl-icon-btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
+#remindly-task-lists .rl-icon-btn svg{width:20px;height:20px}
+#remindly-task-lists .rl-content{padding:14px;flex:1;display:flex;flex-direction:column;gap:12px;min-height:500px}
+#remindly-task-lists .rl-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#remindly-task-lists .rl-section-label{font-size:13px;font-weight:500;color:var(--rl-sub)}
+#remindly-task-lists .rl-sort{background:var(--rl-card);border:1px solid var(--rl-line);border-radius:20px;padding:7px 10px;font-size:12px;max-width:150px}
+#remindly-task-lists .rl-list-stack{display:flex;flex-direction:column;gap:10px}
+#remindly-task-lists .rl-list-card{display:flex;align-items:stretch;background:var(--rl-card);border-radius:16px;box-shadow:0 1px 3px var(--rl-shadow);min-width:0}
+#remindly-task-lists .rl-list-open{display:flex;align-items:flex-start;gap:12px;text-align:left;flex:1;min-width:0;padding:14px!important;border-radius:16px}
+#remindly-task-lists .rl-list-open:hover{background:var(--rl-soft)}
+#remindly-task-lists .rl-list-icon{height:42px;width:42px;display:flex;align-items:center;justify-content:center;background:var(--rl-soft);border-radius:12px;font-size:23px;flex:none}
+#remindly-task-lists .rl-list-copy{flex:1;min-width:0}
+#remindly-task-lists .rl-list-name{font-weight:700;font-size:15px;display:flex;align-items:center;gap:7px;overflow-wrap:anywhere}
+#remindly-task-lists .rl-list-name svg{width:12px;height:12px;color:var(--rl-accent);flex:none}
+#remindly-task-lists .rl-list-meta{color:var(--rl-sub);font-size:12px;margin-top:3px}
+#remindly-task-lists .rl-progress{height:5px;border-radius:4px;background:var(--rl-soft);margin-top:9px}
+#remindly-task-lists .rl-progress-fill{height:100%;border-radius:4px;background:var(--rl-accent)}
+#remindly-task-lists .rl-list-trailing{padding:9px 7px 8px 0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#remindly-task-lists .rl-count{font-size:12px;font-weight:700;color:var(--rl-on-accent);background:var(--rl-accent);min-width:26px;padding:3px 7px;text-align:center;border-radius:20px}
+#remindly-task-lists .rl-count.zero{background:var(--rl-soft);color:var(--rl-on-soft)}
+#remindly-task-lists .rl-list-trailing .rl-icon-btn{width:32px;min-height:36px;color:var(--rl-sub)}
+#remindly-task-lists .rl-unsorted{background:transparent;border:1px dashed var(--rl-line);box-shadow:none}
+#remindly-task-lists .rl-unsorted .rl-list-icon{background:var(--rl-card)}
+#remindly-task-lists .rl-compact .rl-list-stack{gap:0;background:var(--rl-card);border-radius:16px;padding:0 12px}
+#remindly-task-lists .rl-compact .rl-list-card{border-radius:0;box-shadow:none;border-bottom:1px solid var(--rl-line);background:transparent}
+#remindly-task-lists .rl-compact .rl-list-card:last-child{border-bottom:0}
+#remindly-task-lists .rl-compact .rl-list-open{padding:16px 0!important;align-items:center}
+#remindly-task-lists .rl-compact .rl-list-icon{background:transparent;width:30px;height:32px;font-size:21px}
+#remindly-task-lists .rl-compact .rl-list-trailing{flex-direction:row;gap:3px;padding:0}
+#remindly-task-lists .rl-compact .rl-progress{display:none}
+#remindly-task-lists .rl-compact .rl-unsorted{border:0;border-top:1px dashed var(--rl-line)!important}
+#remindly-task-lists .rl-composer{margin-top:auto;display:flex;align-items:center;gap:6px;background:var(--rl-card);border:1px solid var(--rl-line);border-radius:28px;padding:5px 6px 5px 16px;min-height:54px}
+#remindly-task-lists .rl-composer input{background:transparent;border:0;min-width:0;width:100%;padding:8px 0;font-size:16px}
+#remindly-task-lists .rl-composer input::placeholder{color:var(--rl-sub);opacity:1}
+#remindly-task-lists .rl-add-btn{width:40px;height:40px;border-radius:50%;background:var(--rl-accent)!important;color:var(--rl-on-accent)!important;display:flex;align-items:center;justify-content:center;flex:none}
+#remindly-task-lists .rl-add-btn svg{width:21px;height:21px}
+#remindly-task-lists .rl-bottom{border-top:1px solid var(--rl-line);background:var(--rl-card);border-radius:0 0 23px 23px;display:flex;justify-content:space-around;padding:9px 4px 12px;min-height:68px}
+#remindly-task-lists .rl-nav-item{display:flex;flex:1;flex-direction:column;align-items:center;gap:4px;color:var(--rl-sub);font-size:11px}
+#remindly-task-lists .rl-nav-item svg{width:20px;height:20px}
+#remindly-task-lists .rl-nav-item.active{color:var(--rl-accent);font-weight:700}
+#remindly-task-lists .rl-nav-symbol{padding:3px 14px;border-radius:14px;display:flex;align-items:center}
+#remindly-task-lists .rl-nav-item.active .rl-nav-symbol{background:var(--rl-soft)}
+#remindly-task-lists .rl-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;margin:auto 0;padding:25px 12px;min-height:260px}
+#remindly-task-lists .rl-empty-icon{background:var(--rl-soft);color:var(--rl-accent);padding:20px;border-radius:22px;display:flex}
+#remindly-task-lists .rl-empty-icon svg{width:34px;height:34px}
+#remindly-task-lists .rl-empty h3{font-size:20px;line-height:1.25;margin:4px 0 0;font-weight:700;color:var(--rl-ink)}
+#remindly-task-lists .rl-empty p{font-size:13px;color:var(--rl-sub);margin:0;max-width:240px}
+#remindly-task-lists .rl-primary{background:var(--rl-accent)!important;color:var(--rl-on-accent)!important;border-radius:22px;padding:12px 18px!important;font-weight:500;min-height:44px}
+#remindly-task-lists .rl-secondary{background:var(--rl-soft)!important;color:var(--rl-on-soft)!important;border-radius:22px;padding:12px 16px!important;min-height:44px}
+#remindly-task-lists .rl-filter{display:flex;align-items:center;background:var(--rl-card);border:1px solid var(--rl-line);border-radius:24px;padding:4px;gap:4px;flex:1}
+#remindly-task-lists .rl-filter button{flex:1;min-height:36px;padding:6px 8px;border-radius:20px;font-size:12px;white-space:nowrap}
+#remindly-task-lists .rl-filter button[aria-pressed="true"]{color:var(--rl-on-accent);background:var(--rl-accent)}
+#remindly-task-lists .rl-task-row{display:flex;align-items:flex-start;gap:10px;background:var(--rl-card);padding:12px 10px;border-radius:14px}
+#remindly-task-lists .rl-task-check{width:36px;min-height:40px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--rl-accent)!important}
+#remindly-task-lists .rl-task-check svg{width:21px;height:21px}
+#remindly-task-lists .rl-task-copy{flex:1;min-width:0;text-align:left;padding:4px 0!important}
+#remindly-task-lists .rl-task-title{font-weight:500;overflow-wrap:anywhere}
+#remindly-task-lists .rl-task-meta{font-size:12px;color:var(--rl-sub);margin-top:5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#remindly-task-lists .rl-task-meta svg{width:13px;height:13px}
+#remindly-task-lists .rl-priority{border-radius:6px;padding:2px 6px;background:var(--rl-soft);color:var(--rl-on-soft);font-size:11px}
+#remindly-task-lists .rl-priority.urgent{background:var(--rl-red-soft);color:var(--rl-red)}
+#remindly-task-lists .rl-task-row.done .rl-task-title{text-decoration:line-through;color:var(--rl-sub)}
+#remindly-task-lists .rl-task-list{display:flex;flex-direction:column;gap:8px}
+#remindly-task-lists .rl-completion{display:flex;align-items:center;justify-content:space-between;color:var(--rl-sub);font-size:12px}
+#remindly-task-lists .rl-overlay{position:absolute;inset:0;z-index:8;background:var(--rl-overlay);border-radius:23px;display:flex;align-items:flex-end}
+#remindly-task-lists .rl-sheet{width:100%;background:var(--rl-card);padding:12px 20px 20px;border-radius:23px;box-shadow:0 -4px 16px var(--rl-shadow)}
+#remindly-task-lists .rl-handle{width:34px;height:4px;border-radius:4px;background:var(--rl-line);margin:0 auto 10px}
+#remindly-task-lists .rl-sheet-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+#remindly-task-lists .rl-sheet-title h2{margin:0;font-size:21px;font-weight:700;line-height:1.2;color:var(--rl-ink)}
+#remindly-task-lists .rl-sheet-title .rl-icon-btn{color:var(--rl-sub)}
+#remindly-task-lists .rl-form{display:flex;flex-direction:column;gap:12px}
+#remindly-task-lists .rl-field{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:12px;font-weight:500;color:var(--rl-sub)}
+#remindly-task-lists .rl-input{border:1px solid var(--rl-line);background:var(--rl-card);border-radius:12px;padding:10px 12px;width:100%;min-width:0;font-size:16px!important;color:var(--rl-ink)!important}
+#remindly-task-lists .rl-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+#remindly-task-lists .rl-icon-choices{display:flex;gap:7px;flex-wrap:wrap}
+#remindly-task-lists .rl-emoji-btn{width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:12px;font-size:22px!important;background:var(--rl-bg)!important;border:1px solid var(--rl-line)!important}
+#remindly-task-lists .rl-emoji-btn[aria-pressed="true"]{background:var(--rl-soft)!important;border:2px solid var(--rl-accent)!important}
+#remindly-task-lists .rl-pin-toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--rl-ink);min-height:36px}
+#remindly-task-lists .rl-pin-toggle input{accent-color:var(--rl-accent);width:18px;height:18px}
+#remindly-task-lists .rl-sheet-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:5px}
+#remindly-task-lists .rl-sheet-actions .rl-primary{flex:1}
+#remindly-task-lists .rl-schedule{display:flex;border:1px solid var(--rl-line);border-radius:12px;padding:3px;gap:3px}
+#remindly-task-lists .rl-schedule button{flex:1;padding:8px 3px;border-radius:9px;min-height:40px;font-size:12px}
+#remindly-task-lists .rl-schedule button[aria-pressed="true"]{background:var(--rl-soft);color:var(--rl-on-soft);font-weight:500}
+#remindly-task-lists .rl-error{font-size:12px;color:var(--rl-red);margin:0;min-height:17px}
+#remindly-task-lists .rl-error:empty{display:none}
+#remindly-task-lists .rl-menu-item{padding:12px 4px!important;min-height:46px;display:flex;align-items:center;gap:12px;text-align:left;width:100%;border-bottom:1px solid var(--rl-line)!important}
+#remindly-task-lists .rl-menu-item svg{width:18px;height:18px}
+#remindly-task-lists .rl-menu-item:last-child{border-bottom:0!important}
+#remindly-task-lists .rl-danger{color:var(--rl-red)!important}
+#remindly-task-lists .rl-notice{color:var(--rl-green);background:var(--rl-card);border-radius:12px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:7px}
+#remindly-task-lists .rl-notice svg{width:15px;height:15px}
+#remindly-task-lists .rl-search{border:1px solid var(--rl-line);border-radius:12px;padding:10px 12px;background:var(--rl-card);font-size:16px!important;width:100%}
+#remindly-task-lists .rl-dialog-text{color:var(--rl-sub);font-size:13px;margin:0 0 16px}
+#remindly-task-lists .rl-app-mode{background:var(--rl-soft);color:var(--rl-on-soft);padding:12px;border-radius:12px;display:flex;align-items:center;gap:12px;font-weight:500}
+#remindly-task-lists .rl-mode-row{display:flex;gap:12px;align-items:center;padding:14px 12px;color:var(--rl-sub)}
+#remindly-task-lists .rl-app-mode svg,#remindly-task-lists .rl-mode-row svg{width:21px;height:21px}
+@media(max-width:420px){#remindly-task-lists .rl-stage{padding:12px 0;min-height:750px}#remindly-task-lists .rl-content{padding:12px}#remindly-task-lists .rl-sheet{padding:10px 14px 18px}#remindly-task-lists .rl-list-open{gap:9px;padding:12px!important}#remindly-task-lists .rl-list-icon{width:37px;height:37px}}
+@media(pointer:coarse){#remindly-task-lists .rl-list-trailing .rl-icon-btn{width:44px;min-height:44px}#remindly-task-lists .rl-emoji-btn{width:44px;height:44px}}
+</style>
+<div id="remindly-task-lists" class="viz-carousel viz-dotted-background" aria-label="Remindly task list designs">
+  <section data-variant="Shop-style cards" aria-label="Shop-style task list cards"><div class="rl-stage"><div id="rl-cards" class="rl-phone" aria-label="Shop-style cards"></div></div></section>
+  <section data-variant="Compact rows" aria-label="Compact task list rows" hidden><div class="rl-stage"><div id="rl-compact" class="rl-phone rl-compact" aria-label="Compact rows"></div></div></section>
+</div>
+<script>
+(()=>{
+  const root=document.getElementById('remindly-task-lists');
+  const icon=(name)=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
+  const safe=(value)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const demoLists=[{id:'work',name:'Work',icon:'💼',pinned:true,updatedAt:3},{id:'personal',name:'Personal',icon:'🏡',pinned:false,updatedAt:2},{id:'errands',name:'Errands',icon:'📋',pinned:false,updatedAt:1}];
+  const demoTasks=[
+    {id:1,list:'work',title:'Send project update',priority:'High',due:'2026-10-09',time:'10:00',schedule:'One-time',reminder:'Notify',done:false},
+    {id:2,list:'work',title:'Review presentation',priority:'Medium',due:'2026-10-10',time:'15:00',schedule:'One-time',reminder:'Notify',done:false},
+    {id:3,list:'work',title:'Plan next week',priority:'Medium',due:'',time:'',schedule:'No Reminders',reminder:'Notify',done:false},
+    {id:4,list:'work',title:'Update project notes',priority:'Medium',due:'',time:'',schedule:'No Reminders',reminder:'Notify',done:true},
+    {id:5,list:'work',title:'Book meeting room',priority:'Low',due:'',time:'',schedule:'No Reminders',reminder:'Notify',done:true},
+    {id:6,list:'personal',title:'Pay electricity bill',priority:'Urgent',due:'2026-10-09',time:'09:00',schedule:'One-time',reminder:'Notify',done:false},
+    {id:7,list:'personal',title:'Read for 20 minutes',priority:'Low',due:'2026-10-09',time:'20:00',schedule:'Repeat',repeat:'Daily',reminder:'Notify',done:false},
+    {id:8,list:'personal',title:'Water plants',priority:'Low',due:'',time:'',schedule:'No Reminders',reminder:'Notify',done:true},
+    {id:9,list:'unsorted',title:'Renew library card',priority:'Medium',due:'',time:'',schedule:'No Reminders',reminder:'Notify',done:false}
+  ];
+  const models=[];
+  const saved=window.openai?.widgetState?.privateContent?.remindlyTaskLists;
+  function remember(model){
+    if(!window.openai?.setWidgetState)return;
+    const summaries=models.map(m=>({design:m.name,screen:m.view==='home'?'Lists':m.view,list:m.lists.find(l=>l.id===m.selected)?.name||null}));
+    window.openai.setWidgetState({modelContent:{review:'Remindly task lists before adding tasks',designs:summaries,lastUsedDesign:model.name},privateContent:{remindlyTaskLists:models.map(m=>({key:m.key,lists:m.lists,tasks:m.tasks,view:m.view,selected:m.selected,filter:m.filter,sort:m.sort,tweaks:m.tweaks}))}}).catch(()=>{});
+  }
+  function makeModel(id,key,name){
+    const prior=Array.isArray(saved)?saved.find(x=>x.key===key):null;
+    return {el:document.getElementById(id),key,name,lists:prior?.lists||structuredClone(demoLists),tasks:prior?.tasks||structuredClone(demoTasks),view:prior?.view||'home',selected:prior?.selected||null,filter:prior?.filter||'Active',sort:prior?.sort||'Recent',modal:null,notice:'',query:'',search:false,tweaks:{empty:prior?.tweaks?.empty||false,progress:prior?.tweaks?.progress!==false}};
+  }
+  const getList=m=>m.selected==='unsorted'?{id:'unsorted',name:'Unsorted',icon:'📥',pinned:false}:m.lists.find(x=>x.id===m.selected);
+  const counts=(m,id)=>{const tasks=m.tasks.filter(t=>t.list===id);return {active:tasks.filter(t=>!t.done).length,done:tasks.filter(t=>t.done).length,total:tasks.length};};
+  const button=(label,action,cls='rl-icon-btn',extra='')=>`<button type="button" class="${cls} cursor-interaction" data-action="${action}" ${extra}>${label}</button>`;
+  function header(m){
+    const list=getList(m),detail=m.view==='detail'&&list;
+    const active=m.tasks.filter(t=>!t.done).length;
+    const c=detail?counts(m,list.id):null;
+    const title=detail?`${safe(list.icon)} ${safe(list.name)}`:'Tasks';
+    const subtitle=detail?`${c.active} active · ${c.done} done`:(m.tweaks.empty?'Your task lists':`${m.lists.length} lists · ${active} active`);
+    return `<header class="rl-head"><div class="rl-status"><span>9:41</span><span class="rl-status-icons">${icon('signal')}${icon('wifi')}${icon('battery-full')}</span></div><div class="rl-head-row">${button(icon(detail?'arrow-left':'menu'),detail?'back':'drawer','rl-icon-btn',`aria-label="${detail?'Back to task lists':'Open mode menu'}"`)}<div class="rl-head-copy"><div class="rl-title">${title}</div><div class="rl-subtitle">${subtitle}</div></div>${button(icon('search'),'search','rl-icon-btn',`aria-label="${detail?'Search tasks':'Search task lists'}"`)}${detail?button(icon('ellipsis-vertical'),'list-menu','rl-icon-btn',`data-id="${safe(list.id)}" aria-label="List options"`):''}</div></header>`;
+  }
+  function nav(){return `<nav class="rl-bottom" aria-label="Task mode navigation">${[['list-checks','Tasks'],['graduation-cap','Learn'],['phone','Calls'],['settings','Settings']].map(([ico,label])=>`<span class="rl-nav-item ${label==='Tasks'?'active':''}" ${label==='Tasks'?'aria-current="page"':''}><span class="rl-nav-symbol">${icon(ico)}</span>${label}</span>`).join('')}</nav>`;}
+  function listCard(m,list){
+    const c=counts(m,list.id),pct=c.total?Math.round(100*c.done/c.total):0;
+    return `<article class="rl-list-card ${list.id==='unsorted'?'rl-unsorted':''}"><button type="button" class="rl-list-open cursor-interaction" data-action="open-list" data-id="${safe(list.id)}" aria-label="Open ${safe(list.name)}, ${c.active} active tasks"><span class="rl-list-icon">${safe(list.icon)}</span><span class="rl-list-copy"><span class="rl-list-name">${safe(list.name)} ${list.pinned?icon('pin'):''}</span><span class="rl-list-meta">${list.id==='unsorted'?'Tasks without a list':c.total?`${c.active} active · ${c.done} done`:'No tasks yet'}${list.id==='unsorted'?` · ${c.active}`:''}</span>${m.tweaks.progress&&c.total&&list.id!=='unsorted'?`<div class="rl-progress" role="progressbar" aria-label="${safe(list.name)} completed tasks" aria-valuemin="0" aria-valuemax="${c.total}" aria-valuenow="${c.done}"><div class="rl-progress-fill" style="width:${pct}%"></div></div>`:''}</span></button><div class="rl-list-trailing"><span class="rl-count ${c.active?'':'zero'}" aria-label="${c.active} active">${c.active}</span>${list.id!=='unsorted'?button(icon('ellipsis-vertical'),'list-menu','rl-icon-btn',`data-id="${safe(list.id)}" aria-label="Options for ${safe(list.name)}"`):''}</div></article>`;
+  }
+  function empty(m,detail){
+    const list=getList(m);
+    const title=detail?(m.filter==='Done'?'No completed tasks':`Start ${safe(list.name)}`):'Create your first list';
+    const caption=detail?(m.filter==='Done'?'Completed tasks will appear here.':list.id==='unsorted'?'All your tasks have a list.':'Add tasks here. They will belong to this list.'):'Give your tasks a home, then add tasks inside it.';
+    const action=detail?'add-task':'create-list';
+    return `<div class="rl-empty"><div class="rl-empty-icon">${icon(detail?'list-checks':'folder-plus')}</div><h3>${title}</h3><p>${caption}</p>${detail&&m.filter==='Done'||detail&&list.id==='unsorted'?'':button(detail?'Add first task':'Create list',action,'rl-primary')}</div>`;
+  }
+  function composer(m,detail){
+    const list=getList(m);
+    if(detail&&list.id==='unsorted')return '';
+    return `<form class="rl-composer" data-form="quick"><input aria-label="${detail?'Task title':'New list name'}" name="quick" autocomplete="off" maxlength="80" placeholder="${detail?`Add to ${safe(list.name)}…`:'New list…'}">${button(icon('plus'),detail?'quick-task':'quick-list','rl-add-btn',`aria-label="${detail?'Add task':'Create list'}"`)}</form>`;
+  }
+  function home(m){
+    const lists=m.tweaks.empty?[]:[...m.lists];
+    const sorted=lists.sort((a,b)=>Number(b.pinned)-Number(a.pinned)||(m.sort==='A–Z'?a.name.localeCompare(b.name):(b.updatedAt||0)-(a.updatedAt||0)));
+    if(!m.tweaks.empty&&counts(m,'unsorted').total)sorted.push({id:'unsorted',name:'Unsorted',icon:'📥'});
+    const matches=sorted.filter(l=>l.name.toLowerCase().includes(m.query.toLowerCase()));
+    return `<main class="rl-content">${m.search?`<input class="rl-search" aria-label="Search lists" data-search placeholder="Search lists…" value="${safe(m.query)}">`:''}<div class="rl-toolbar"><span class="rl-section-label">Your lists</span><select class="rl-sort" aria-label="Sort lists" data-sort>${['Recent','A–Z'].map(x=>`<option ${m.sort===x?'selected':''}>${x}</option>`).join('')}</select></div>${m.notice?`<div class="rl-notice" role="status">${icon('check')}${safe(m.notice)}</div>`:''}${lists.length||matches.length?`<div class="rl-list-stack">${matches.map(l=>listCard(m,l)).join('')}</div>`:empty(m,false)}${m.query&&!matches.length?`<p class="rl-section-label" role="status">No matching lists</p>`:''}${composer(m,false)}</main>`;
+  }
+  function dueText(t){
+    if(!t.due)return 'No reminders';
+    const [year,month,day]=t.due.split('-').map(Number),months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${day} ${months[month-1]||''}${t.time?' · '+t.time:''}${t.schedule==='Repeat'?' · '+(t.repeat||'Daily'):''}`;
+  }
+  function taskRow(t){return `<article class="rl-task-row ${t.done?'done':''}">${button(icon(t.done?'square-check':'square'),'complete','rl-task-check',`data-id="${t.id}" aria-label="${t.done?'Restore':'Complete'} ${safe(t.title)}"`)}<button type="button" class="rl-task-copy cursor-interaction" data-action="edit-task" data-id="${t.id}" aria-label="Edit ${safe(t.title)}"><div class="rl-task-title">${safe(t.title)}</div><div class="rl-task-meta">${icon(t.due?'calendar-days':'bell-off')}<span>${safe(dueText(t))}</span><span class="rl-priority ${t.priority==='Urgent'?'urgent':''}">${safe(t.priority)}</span></div></button></article>`;}
+  function detail(m){
+    const list=getList(m);if(!list){m.view='home';return home(m);}
+    const c=counts(m,list.id);
+    let tasks=m.tasks.filter(t=>t.list===list.id&&t.done===(m.filter==='Done')&&t.title.toLowerCase().includes(m.query.toLowerCase()));
+    if(m.taskSort==='By Priority'){const order=['Urgent','High','Medium','Low'];tasks.sort((a,b)=>order.indexOf(a.priority)-order.indexOf(b.priority));}
+    else if(m.taskSort!=='No Group')tasks.sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+    return `<main class="rl-content">${m.search?`<input class="rl-search" aria-label="Search tasks" data-search placeholder="Search tasks…" value="${safe(m.query)}">`:''}<div class="rl-toolbar"><div class="rl-filter" aria-label="Task status">${['Active','Done'].map(x=>button(`${x} ${x==='Active'?c.active:c.done}`,'filter','',`data-value="${x}" aria-pressed="${m.filter===x}"`)).join('')}</div><select class="rl-sort" aria-label="Group tasks" data-task-sort>${['By Date','By Priority','No Group'].map(x=>`<option ${m.taskSort===x?'selected':''}>${x}</option>`).join('')}</select></div>${c.total?`<div class="rl-completion"><span>${c.done} of ${c.total} completed</span><span>${Math.round(100*c.done/c.total)}%</span></div>${m.tweaks.progress?`<div class="rl-progress" style="margin-top:-6px" role="progressbar" aria-label="Completed tasks" aria-valuemin="0" aria-valuemax="${c.total}" aria-valuenow="${c.done}"><div class="rl-progress-fill" style="width:${100*c.done/c.total}%"></div></div>`:''}`:''}${m.notice?`<div class="rl-notice" role="status">${icon('check')}${safe(m.notice)}</div>`:''}${tasks.length?`<div class="rl-task-list">${tasks.map(taskRow).join('')}</div>`:m.query?'<p class="rl-section-label" role="status">No matching tasks</p>':empty(m,true)}${composer(m,true)}</main>`;
+  }
+  function sheetFrame(title,body,label){return `<div class="rl-overlay"><section class="rl-sheet" role="dialog" aria-modal="true" aria-label="${safe(label||title)}"><div class="rl-handle"></div><div class="rl-sheet-title"><h2>${safe(title)}</h2>${button(icon('x'),'close','rl-icon-btn','aria-label="Close dialog"')}</div>${body}</section></div>`;}
+  function listForm(m){
+    const modal=m.modal,list=modal.list||{},emoji=modal.icon||list.icon||'📋';
+    return sheetFrame(modal.type==='rename'?'Edit list':'New list',`<form class="rl-form" data-form="list"><label class="rl-field">List name<input class="rl-input" name="name" maxlength="60" autocomplete="off" placeholder="e.g. Weekend plans" value="${safe(modal.draft??list.name??'')}"></label><div class="rl-field"><span>List icon</span><div class="rl-icon-choices">${[['📋','Checklist'],['💼','Work'],['🏡','Home'],['🎯','Goal'],['🧳','Travel'],['🗓️','Calendar']].map(([e,label])=>button(e,'emoji','rl-emoji-btn',`data-value="${e}" aria-label="${label} icon" aria-pressed="${emoji===e}"`)).join('')}</div></div><label class="rl-pin-toggle"><input type="checkbox" name="pinned" ${modal.pinned??list.pinned?'checked':''}>Pin list to top</label><p class="rl-error" role="alert" data-error></p><div class="rl-sheet-actions">${button('Cancel','close','rl-secondary')}${button(modal.type==='rename'?'Save list':'Create &amp; add tasks','save-list','rl-primary')}</div></form>`);
+  }
+  function taskForm(m){
+    const d=m.modal.draft,one=d.schedule!=='No Reminders';
+    return sheetFrame(m.modal.type==='edit-task'?'Edit task':'New task',`<form class="rl-form" data-form="task"><label class="rl-field">Title<input class="rl-input" name="title" autocomplete="off" maxlength="100" placeholder="What needs to be done?" value="${safe(d.title)}"></label><label class="rl-field">List<select class="rl-input" name="list">${m.lists.map(l=>`<option value="${safe(l.id)}" ${d.list===l.id?'selected':''}>${safe(l.icon)} ${safe(l.name)}</option>`).join('')}${d.list==='unsorted'?'<option value="unsorted" selected>Unsorted — choose a list</option>':''}</select></label><div class="rl-field"><span>Schedule</span><div class="rl-schedule">${['No Reminders','One-time','Repeat'].map(s=>button(s,'schedule','',`data-value="${s}" aria-pressed="${d.schedule===s}"`)).join('')}</div></div>${one?`<div class="rl-pair"><label class="rl-field">Due date<input type="date" class="rl-input" name="due" value="${safe(d.due)}"></label><label class="rl-field">Time<input type="time" class="rl-input" name="time" value="${safe(d.time)}"></label></div>`:''}${d.schedule==='Repeat'?`<label class="rl-field">Repeat<select class="rl-input" name="repeat">${['Daily','Weekly','Monthly'].map(v=>`<option ${d.repeat===v?'selected':''}>${v}</option>`).join('')}</select></label>`:''}<div class="rl-pair"><label class="rl-field">Priority<select class="rl-input" name="priority">${['Low','Medium','High','Urgent'].map(p=>`<option ${d.priority===p?'selected':''}>${p}</option>`).join('')}</select></label>${one?`<label class="rl-field">Reminder type<select class="rl-input" name="reminder">${['Alarm','Ring','Notify'].map(v=>`<option ${d.reminder===v?'selected':''}>${v}</option>`).join('')}</select></label>`:''}</div><label class="rl-field">Notes<input class="rl-input" name="notes" maxlength="200" placeholder="Optional" value="${safe(d.notes||'')}"></label><p class="rl-error" role="alert" data-error></p><div class="rl-sheet-actions">${button('Cancel','close','rl-secondary')}${button(m.modal.type==='edit-task'?'Save task':'Add task','save-task','rl-primary')}</div></form>`);
+  }
+  function overlay(m){
+    const modal=m.modal;if(!modal)return '';
+    if(modal.type==='create'||modal.type==='rename')return listForm(m);
+    if(modal.type==='task'||modal.type==='edit-task')return taskForm(m);
+    if(modal.type==='menu'){
+      const l=modal.list;
+      return sheetFrame(l.name,`${l.id==='unsorted'?'':button(icon(l.pinned?'pin-off':'pin')+(l.pinned?'Unpin list':'Pin to top'),'pin','rl-menu-item')+button(icon('pencil')+'Rename & icon','rename','rl-menu-item')}${button(icon('list-checks')+'Open list','menu-open','rl-menu-item')}${l.id==='unsorted'?'':button(icon('trash-2')+'Delete list…','delete-list','rl-menu-item rl-danger')}`);
+    }
+    if(modal.type==='delete')return sheetFrame('Delete list?',`<p class="rl-dialog-text">Delete “${safe(modal.list.name)}”? Its tasks will stay in Unsorted, with their reminders and completion status.</p><div class="rl-sheet-actions">${button('Cancel','close','rl-secondary')}${button('Delete list','confirm-delete','rl-primary')}</div>`);
+    return sheetFrame('Remindly',`<div class="rl-app-mode">${icon('list-checks')}Task Mode ${icon('check')}</div><div class="rl-mode-row">${icon('shopping-cart')}Shop Mode</div>`,'Mode menu');
+  }
+  function render(m,focus){
+    if(m.sheetObserver)m.sheetObserver.disconnect();
+    m.el.innerHTML=header(m)+(m.view==='detail'?detail(m):home(m))+nav()+overlay(m);
+    for(const child of m.el.children){if(!child.classList.contains('rl-overlay'))child.inert=!!m.modal;}
+    m.el.style.minHeight='704px';
+    const sheet=m.el.querySelector('.rl-sheet');
+    if(sheet)m.el.style.minHeight=Math.max(704,sheet.scrollHeight+24)+'px';
+    if(sheet){m.sheetObserver=new ResizeObserver(()=>{const required=Math.max(704,Math.ceil(sheet.getBoundingClientRect().height)+24);if(m.el.style.minHeight!==required+'px')m.el.style.minHeight=required+'px';});m.sheetObserver.observe(sheet);}
+    if(globalThis.lucide)lucide.createIcons({attrs:{width:16,height:16}});
+    const focusTarget=focus?m.el.querySelector(focus):sheet?sheet.querySelector('button,input,select'):m.returnFocus?m.el.querySelector(m.returnFocus):null;
+    if(focusTarget)focusTarget.focus();
+    if(!m.modal)m.returnFocus=null;
+  }
+  function touchList(m,id){const list=m.lists.find(l=>l.id===id);if(list)list.updatedAt=Date.now();}
+  function readTask(m){const f=m.el.querySelector('[data-form="task"]');if(!f)return;const data=new FormData(f);for(const [key,value]of data.entries())m.modal.draft[key]=value;}
+  function newTask(m,title){const list=getList(m);if(!list||list.id==='unsorted')return;m.modal={type:'task',draft:{title:title||'',list:list.id,priority:'Medium',schedule:'No Reminders',due:'',time:'',reminder:'Notify',notes:''}};render(m,'[name="title"]');}
+  function doAction(m,action,target){
+    const value=target.dataset.value,id=target.dataset.id;
+    if(!m.modal)m.returnFocus=`[data-action="${action}"]${id?`[data-id="${id}"]`:''}`;
+    if(action==='save-list'||action==='save-task'){const f=m.el.querySelector(`[data-form="${action==='save-list'?'list':'task'}"]`);submit(m,f.dataset.form,f);return;}
+    if(action==='back'){m.view='home';m.selected=null;m.notice='';m.search=false;m.query='';}
+    if(action==='open-list'||action==='menu-open'){m.selected=id||m.modal.list.id;m.view='detail';m.filter='Active';m.modal=null;m.notice='';m.query='';m.search=false;}
+    if(action==='search'){m.search=!m.search;m.query='';render(m,m.search?'[data-search]':null);return;}
+    if(action==='drawer')m.modal={type:'drawer'};
+    if(action==='close')m.modal=null;
+    if(action==='create-list'||action==='quick-list'){m.modal={type:'create',draft:m.el.querySelector('[name="quick"]')?.value||'',icon:'📋',pinned:false};render(m,'[name="name"]');return;}
+    if(action==='emoji'){const f=m.el.querySelector('[data-form="list"]');m.modal.draft=f.elements.name.value;m.modal.pinned=f.elements.pinned.checked;m.modal.icon=value;render(m);return;}
+    if(action==='list-menu')m.modal={type:'menu',list:id==='unsorted'?{id:'unsorted',name:'Unsorted'}:m.lists.find(l=>l.id===id)};
+    if(action==='pin'){const l=m.modal.list;l.pinned=!l.pinned;m.notice=l.pinned?'List pinned':'List unpinned';m.modal=null;}
+    if(action==='rename'){const l=m.modal.list;m.modal={type:'rename',list:l,draft:l.name,icon:l.icon,pinned:l.pinned};render(m,'[name="name"]');return;}
+    if(action==='delete-list')m.modal={type:'delete',list:m.modal.list};
+    if(action==='confirm-delete'){const l=m.modal.list;m.lists=m.lists.filter(x=>x.id!==l.id);m.tasks.forEach(t=>{if(t.list===l.id)t.list='unsorted';});m.modal=null;m.view='home';m.selected=null;m.notice='List deleted · Tasks kept in Unsorted';}
+    if(action==='add-task'){newTask(m,'');return;}
+    if(action==='quick-task'){
+      const title=m.el.querySelector('[name="quick"]').value.trim();
+      if(!title){newTask(m,'');return;}
+      if(!getList(m)||getList(m).id==='unsorted')return;
+      m.tasks.push({id:Date.now(),title,list:m.selected,done:false,priority:'Medium',schedule:'No Reminders',due:'',time:'',reminder:'Notify'});touchList(m,m.selected);m.filter='Active';m.notice='Task added to '+getList(m).name;
+    }
+    if(action==='filter'){m.filter=value;m.notice='';}
+    if(action==='complete'){const t=m.tasks.find(t=>String(t.id)===id);t.done=!t.done;touchList(m,t.list);m.notice=t.done?'Task completed':'Task restored to Active';}
+    if(action==='edit-task'){const t=m.tasks.find(t=>String(t.id)===id);m.modal={type:'edit-task',draft:{...t}};render(m,'[name="title"]');return;}
+    if(action==='schedule'){readTask(m);m.modal.draft.schedule=value;render(m);return;}
+    render(m);remember(m);
+  }
+  function submit(m,type,form){
+    const data=new FormData(form),error=form.querySelector('[data-error]');
+    if(type==='quick'){doAction(m,m.view==='detail'?'quick-task':'quick-list',form);return;}
+    if(type==='list'){
+      const name=String(data.get('name')||'').trim();
+      if(!name){error.textContent='Give your list a name.';return;}
+      if(m.lists.some(l=>l.name.toLowerCase()===name.toLowerCase()&&l.id!==m.modal.list?.id)){error.textContent='A list with this name already exists.';return;}
+      if(name.toLowerCase()==='unsorted'){error.textContent='Choose another name. Unsorted holds tasks without a list.';return;}
+      const l=m.modal.type==='rename'?m.modal.list:{id:'list-'+Date.now()};
+      Object.assign(l,{name,icon:m.modal.icon||'📋',pinned:data.get('pinned')==='on',updatedAt:Date.now()});
+      if(m.modal.type==='create'){if(m.tweaks.empty){m.lists=[];m.tasks=[];m.tweaks.empty=false;}m.lists.push(l);m.selected=l.id;m.view='detail';m.filter='Active';m.notice='';}
+      else m.notice='List updated';m.modal=null;
+    }
+    if(type==='task'){
+      readTask(m);const d=m.modal.draft;d.title=d.title.trim();
+      if(!d.title){error.textContent='Give your task a title.';return;}
+      if(d.list==='unsorted'||!m.lists.some(l=>l.id===d.list)){error.textContent='Choose a list before saving this task.';return;}
+      if(d.schedule!=='No Reminders'&&!d.due){error.textContent='Choose a due date for the reminder.';return;}
+      if(d.schedule==='No Reminders'){d.due='';d.time='';}
+      const editing=m.modal.type==='edit-task';
+      if(editing){const index=m.tasks.findIndex(t=>t.id===d.id);m.tasks[index]={...d};}
+      else m.tasks.push({...d,id:Date.now(),done:false});
+      touchList(m,d.list);
+      m.selected=d.list;m.filter=d.done?'Done':'Active';m.view='detail';m.notice=editing?'Task updated':'Task added to '+getList(m).name;m.modal=null;
+    }
+    render(m);remember(m);
+  }
+  for(const config of [['rl-cards','cards','Shop-style cards'],['rl-compact','compact','Compact rows']]){
+    const m=makeModel(...config);models.push(m);
+    m.el.addEventListener('click',event=>{const target=event.target.closest('[data-action]');if(target&&m.el.contains(target))doAction(m,target.dataset.action,target);});
+    m.el.addEventListener('submit',event=>{const form=event.target.closest('[data-form]');if(form){event.preventDefault();submit(m,form.dataset.form,form);}});
+    m.el.addEventListener('change',event=>{if(event.target.matches('[data-sort]')){m.sort=event.target.value;render(m);remember(m);}if(event.target.matches('[data-task-sort]')){m.taskSort=event.target.value;render(m);remember(m);}});
+    m.el.addEventListener('input',event=>{if(event.target.matches('[data-search]')){const start=event.target.selectionStart;m.query=event.target.value;render(m,'[data-search]');m.el.querySelector('[data-search]').setSelectionRange(start,start);}if(event.target.matches('[name="quick"]')&&m.view==='detail'){const btn=m.el.querySelector('[data-action="quick-task"]');btn.setAttribute('aria-label',event.target.value.trim()?'Save quick task':'Add task');btn.innerHTML=icon(event.target.value.trim()?'check':'plus');if(globalThis.lucide)lucide.createIcons({attrs:{width:16,height:16}});}});
+    m.el.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('[name="quick"]')){event.preventDefault();doAction(m,m.view==='detail'?'quick-task':'quick-list',event.target.closest('form'));}if(event.key==='Escape'&&m.modal){m.modal=null;render(m);}if(event.key==='Tab'&&m.modal){const controls=[...m.el.querySelectorAll('.rl-sheet button,.rl-sheet input,.rl-sheet select')].filter(e=>!e.disabled);if(!controls.length)return;const first=controls[0],last=controls[controls.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+    render(m);
+    if(globalThis.Tweak){const tweak=new Tweak({container:m.el,onChange:()=>{m.modal=null;m.view='home';m.selected=null;m.notice='';render(m);remember(m);}});tweak.addToggle(m.tweaks,'empty',{label:'First launch (no lists)'});if(m.key==='cards')tweak.addToggle(m.tweaks,'progress',{label:'Show completion progress'});}
+  }
+  window.addEventListener('openai:set_globals',event=>{
+    const restored=event.detail?.globals?.widgetState?.privateContent?.remindlyTaskLists;
+    if(!Array.isArray(restored))return;
+    for(const m of models){const prior=restored.find(x=>x.key===m.key);if(!prior||!Array.isArray(prior.lists)||!Array.isArray(prior.tasks))continue;if(JSON.stringify([m.lists,m.tasks,m.view,m.selected,m.filter,m.sort,m.tweaks])===JSON.stringify([prior.lists,prior.tasks,prior.view,prior.selected,prior.filter,prior.sort,prior.tweaks]))continue;m.lists=prior.lists;m.tasks=prior.tasks;m.view=prior.view==='detail'?'detail':'home';m.selected=prior.selected;m.filter=prior.filter==='Done'?'Done':'Active';m.sort=prior.sort==='A–Z'?'A–Z':'Recent';Object.assign(m.tweaks,prior.tweaks||{});m.modal=null;render(m);}
+  });
+})();
+</script>

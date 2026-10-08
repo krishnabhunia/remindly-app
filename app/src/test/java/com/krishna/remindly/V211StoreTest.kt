@@ -17,7 +17,7 @@ class V211StoreTest {
         val old = AppSettings(ver = 42, buyShowUnsorted = false, buyCardTotal = false, buyDupWarn = false,
             shareWaIcon = false, shareUrgentTag = false, shareBoughtTag = false)
         val m = SettingsStore.migrate(old)
-        assertEquals(43, m.ver)
+        assertEquals(44, m.ver)
         assertTrue(m.buyShowUnsorted && m.buyCardTotal && m.buyDupWarn && m.shareWaIcon && m.shareUrgentTag && m.shareBoughtTag)
         // a 43 file keeps the user's OFF choices
         assertFalse(SettingsStore.migrate(m.copy(shareWaIcon = false)).shareWaIcon)

@@ -113,7 +113,7 @@ class RemindlyApp : Application() {
         if (!st.groupsSeeded) {
             val items = ItemStore.items.value
             fun distinct(tab: Tab, pick: (Item) -> String?) =
-                items.filter { it.tab == tab }.mapNotNull { pick(it)?.trim() }
+                items.filter { it.tab == tab && it.deletedAt == null }.mapNotNull { pick(it)?.trim() }
                     .filter { it.isNotBlank() }.distinct().sorted()
             SettingsStore.update {
                 it.copy(
@@ -124,6 +124,7 @@ class RemindlyApp : Application() {
                 )
             }
             SettingsStore.persistNow()
+            TaskListStore.reconcile(this)
         }
         createChannels()
     }

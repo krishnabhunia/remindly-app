@@ -258,8 +258,8 @@ class V190Test {
     }
 
     @Test fun v200_schemaIs37_afterN33() {
-        assertEquals(43, AppSettings().ver)
-        assertEquals(43, healSettings(AppSettings()).ver)
+        assertEquals(44, AppSettings().ver)
+        assertEquals(44, healSettings(AppSettings()).ver)
     }
 
     // ---------------------------------------------------------------- settings round-trip
