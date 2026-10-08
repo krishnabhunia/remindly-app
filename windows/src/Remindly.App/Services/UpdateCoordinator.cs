@@ -41,14 +41,15 @@ public sealed class UpdateCoordinator
     {
         CleanPortableLeftover();
         var s = AppState.Current.Settings;
-        // First run: the first automatic check happens tomorrow.
-        if (s.UpdateLastCheck <= 0) AppState.Current.UpdateSettingsQuiet(x => x with { UpdateLastCheck = Clock.NowMs() });
         SystemEvents.PowerModeChanged += (_, e) =>
         {
             if (e.Mode == PowerModes.Resume) Application.Current.Dispatcher.BeginInvoke(async () => await TickAsync());
         };
         _timer.Start();
-        Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () => await TickAsync());
+        Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () =>
+        {
+            if (AppState.Current.Settings.UpdateAutoCheck) await CheckNowAsync(interactive: false);
+        });
     }
 
     public void Stop()
@@ -74,7 +75,9 @@ public sealed class UpdateCoordinator
         SetStatus("Checking GitHub for a new version…");
         try
         {
-            var r = await _service.CheckAsync(CancellationToken.None);
+            var beta = AppState.Current.Settings.UpdateBeta;
+            var r = await _service.CheckAsync(CancellationToken.None, beta);
+            if (beta != AppState.Current.Settings.UpdateBeta) { ResetChannel(); return null; }
             Last = r;
             AppState.Current.UpdateSettingsQuiet(x => x with { UpdateLastCheck = Clock.NowMs() });
             SetStatus(r.Message);
@@ -102,18 +105,20 @@ public sealed class UpdateCoordinator
     public async Task DownloadAndInstallAsync(bool background)
     {
         if (_busy || Last?.Release is not ReleaseInfo release || Last.Status != UpdateStatus.UpdateAvailable) return;
+        if (release.IsBeta && !AppState.Current.Settings.UpdateBeta) { ResetChannel(); return; }
         _busy = true;
         try
         {
             bool installed = InstallInfo.IsInstalledMode();
-            SetStatus($"Downloading Remindly {release.Version.ToString(3)}…");
+            SetStatus($"Downloading Remindly {release.DisplayVersion}…");
             var zip = await _service.DownloadAsync(release, new Progress<int>(p => { Progress = p; Changed?.Invoke(); }), CancellationToken.None);
             var file = await Task.Run(() => UpdateService.ExtractForMode(zip, installed));
             Progress = -1;
+            if (release.IsBeta && !AppState.Current.Settings.UpdateBeta) { ResetChannel(); return; }
             _pendingFile = file;
             if (background && UserIsBusy())
             {
-                SetStatus($"Remindly {release.Version.ToString(3)} is downloaded and verified — it installs as soon as you are not using Remindly.");
+                SetStatus($"Remindly {release.DisplayVersion} is downloaded and verified — it installs as soon as you are not using Remindly.");
                 _pendingTimer.Start();
                 return;
             }
@@ -135,6 +140,14 @@ public sealed class UpdateCoordinator
         if (UserIsBusy()) return;
         _pendingTimer.Stop();
         Apply();
+    }
+
+    public void ResetChannel()
+    {
+        Last = null;
+        _pendingFile = null;
+        _pendingTimer.Stop();
+        SetStatus("Update channel changed. Check now to refresh.");
     }
 
     /// <summary>An editor or reminder is open, or Remindly is the window the user is working in.</summary>

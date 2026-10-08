@@ -25,8 +25,10 @@ android {
         applicationId = "com.krishna.remindly"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2011000
-        versionName = "2.11"
+        versionName = providers.gradleProperty("remindlyVersion").orElse(rootProject.file("VERSION").readText().trim()).get()
+        val parts = versionName!!.substringBefore('-').split('.').map(String::toInt)
+        versionCode = providers.gradleProperty("remindlyVersionCode").orNull?.toInt()
+            ?: (parts[0] * 100_000_000 + parts[1] * 1_000_000 + parts[2] * 10_000 + 9999)
     }
 
     // Signing material is NEVER in the repository. It comes from keystore.properties (git-ignored)

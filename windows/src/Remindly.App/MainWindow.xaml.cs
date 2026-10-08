@@ -25,7 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var v = UpdateService.CurrentVersion.ToString(3);
+        var v = UpdateService.CurrentDisplayVersion;
         Title = $"Remindly {v}";
         VersionText.Text = $"Version {v} · {InstallInfo.ModeLabel}";
         _snackTimer.Tick += (_, _) => HideSnack();
@@ -162,7 +162,7 @@ public partial class MainWindow : Window
         if (u?.Last is { Status: UpdateStatus.UpdateAvailable, Release: ReleaseInfo r })
         {
             UpdateBanner.Visibility = Visibility.Visible;
-            UpdateBannerText.Text = u.Progress >= 0 ? $"Downloading Remindly {r.Version.ToString(3)}… {u.Progress}%" : $"Remindly {r.Version.ToString(3)} is available";
+            UpdateBannerText.Text = u.Progress >= 0 ? $"Downloading Remindly {r.DisplayVersion}… {u.Progress}%" : $"Remindly {r.DisplayVersion} is available";
             UpdateBannerButton.IsEnabled = !u.Busy;
         }
         else UpdateBanner.Visibility = Visibility.Collapsed;

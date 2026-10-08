@@ -42,7 +42,9 @@ object Updater {
     fun cachedFeed(): VersionFeed? = UiStore.s.value.updateFeedJson?.let { parseVersionFeed(it) }
 
     /** Is a newer build known right now? */
-    fun pending(context: Context): VersionFeed? = cachedFeed()?.takeIf { updateAvailable(it, installedCode(context)) }
+    fun pending(context: Context): VersionFeed? = cachedFeed()?.takeIf {
+        updateFeedAllowed(it, SettingsStore.s.value.updateBeta) && updateAvailable(it, installedCode(context))
+    }
 
     private fun onWifi(context: Context): Boolean = runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)
@@ -56,8 +58,9 @@ object Updater {
      */
     suspend fun check(context: Context, notify: Boolean): VersionFeed? = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
+        val beta = SettingsStore.s.value.updateBeta
         val feed = runCatching {
-            val conn = (URL(UPDATE_FEED_URL).openConnection() as HttpURLConnection).apply {
+            val conn = (URL(updateFeedUrl(beta)).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000; readTimeout = 8000; requestMethod = "GET"
                 setRequestProperty("Cache-Control", "no-cache")
             }
@@ -66,6 +69,8 @@ object Updater {
                 else parseVersionFeed(conn.inputStream.bufferedReader().readText())
             } finally { conn.disconnect() }
         }.onFailure { Logger.e(context, TAG, it, "feed fetch failed") }.getOrNull()
+            ?.takeIf { updateFeedAllowed(it, beta) }
+        if (SettingsStore.s.value.updateBeta != beta) return@withContext null
         runCatching {
             UiStore.update { it.copy(updateLastCheck = now, updateFeedJson = feed?.let { f -> feedToJson(f) } ?: it.updateFeedJson) }
         }
@@ -88,6 +93,11 @@ object Updater {
         }.onFailure { Logger.e(context, TAG, it, "auto check failed") }
     }
 
+    /** Every application start checks the selected channel when automatic checks are enabled. */
+    suspend fun checkOnStart(context: Context) {
+        if (SettingsStore.s.value.updateAutoCheck) check(context, notify = true)
+    }
+
     private fun feedToJson(f: VersionFeed): String = com.google.gson.Gson().toJson(f)
 
     sealed class Result {
@@ -102,12 +112,16 @@ object Updater {
      */
     suspend fun downloadAndInstall(context: Context, feed: VersionFeed, onProgress: (Int) -> Unit): Result = withContext(Dispatchers.IO) {
         val s = SettingsStore.s.value
+        if (!updateFeedAllowed(feed, s.updateBeta)) return@withContext Result.Blocked("Beta updates are off. Check the stable channel first.")
         if (s.updateWifiOnly && !onWifi(context)) return@withContext Result.Blocked("Wi-Fi only is on and you are on mobile data")
         val dir = File(context.cacheDir, CACHE_DIR).apply { mkdirs() }
         val out = File(dir, feed.apk)
         runCatching {
             // a previous verified download is reused
-            if (out.exists() && sha256Hex(out.readBytes()) == feed.sha256) { launchInstaller(context, out); return@withContext Result.Ok }
+            if (out.exists() && sha256Hex(out.readBytes()) == feed.sha256) {
+                if (!updateFeedAllowed(feed, SettingsStore.s.value.updateBeta)) return@withContext Result.Blocked("Beta updates are off.")
+                launchInstaller(context, out); return@withContext Result.Ok
+            }
             out.delete()
             val conn = (URL(feed.apkUrl).openConnection() as HttpURLConnection).apply { connectTimeout = 10_000; readTimeout = 30_000 }
             try {
@@ -131,6 +145,7 @@ object Updater {
             }
             onProgress(100)
             Logger.e(context, TAG, null, "downloaded + verified ${feed.apk} (${out.length()} bytes)")
+            if (!updateFeedAllowed(feed, SettingsStore.s.value.updateBeta)) return@withContext Result.Blocked("Beta updates are off.")
             launchInstaller(context, out)
             Result.Ok
         }.getOrElse { e ->

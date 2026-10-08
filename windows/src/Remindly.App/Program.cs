@@ -65,7 +65,7 @@ public static class Program
 
         try
         {
-            Log.Info($"Remindly {Core.Updates.UpdateService.CurrentVersion.ToString(3)} starting ({(InstallInfo.IsInstalledMode() ? "installed" : "portable")}) {string.Join(' ', args)}");
+            Log.Info($"Remindly {Core.Updates.UpdateService.CurrentDisplayVersion} starting ({(InstallInfo.IsInstalledMode() ? "installed" : "portable")}) {string.Join(' ', args)}");
             var app = new App(opts, instance);
             app.InitializeComponent();
             return app.Run();

@@ -4,9 +4,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <!-- THE Windows version. Bumping it in a pull request is the decision to release:
-         the merge to main builds, tests and publishes GitHub Release win-v<Version>. -->
-    <Version>2.11.0</Version>
+    <!-- Local builds use VERSION; CI injects the automatic stable or beta version. -->
+    <RemindlyVersion Condition="'$(RemindlyVersion)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../VERSION').Trim())</RemindlyVersion>
+    <Version>$(RemindlyVersion)</Version>
+    <InformationalVersion>$(RemindlyVersion)</InformationalVersion>
     <Authors>Krishna Bhunia</Authors>
     <Company>Krishna Bhunia</Company>
     <Product>Remindly</Product>

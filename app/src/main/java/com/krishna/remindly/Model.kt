@@ -732,8 +732,13 @@ fun rowsForRecord(rows: List<SchedRow>, row: SchedRow): List<SchedRow> = rows.fi
 
 // ---------------------------------------------------------------- v2.9 (N47) in-app updates
 
-const val UPDATE_FEED_URL = "https://raw.githubusercontent.com/krishnabhunia/remindly-android-app/main/releases/version.json"
-const val UPDATE_RELEASES_URL = "https://github.com/krishnabhunia/remindly-android-app/releases/latest"
+const val UPDATE_FEED_URL = "https://raw.githubusercontent.com/krishnabhunia/remindly-app/main/releases/version.json"
+const val UPDATE_BETA_FEED_URL = "https://github.com/krishnabhunia/remindly-app/releases/download/beta/version.json"
+const val UPDATE_RELEASES_URL = "https://github.com/krishnabhunia/remindly-app/releases/latest"
+
+fun updateFeedUrl(beta: Boolean): String = if (beta) UPDATE_BETA_FEED_URL else UPDATE_FEED_URL
+fun updateFeedAllowed(feed: VersionFeed?, beta: Boolean): Boolean =
+    feed != null && (beta || !feed.versionName.contains("-beta.", ignoreCase = true))
 const val UPDATE_CHECK_INTERVAL_MS = 24L * 3600_000L
 
 /** The feed the app reads: releases/version.json in the repo (published with every release). */
@@ -981,6 +986,7 @@ data class AppSettings(
     val shareHeadingSuffix: String = ":-",      // text after the list name
     // v2.9 (N47): in-app updates from the GitHub repo's releases/version.json feed.
     val updateAutoCheck: Boolean = true,
+    val updateBeta: Boolean = false,
     val updateWifiOnly: Boolean = true,
     // v2.9 (N45): shopping-list features — group icons (emoji per group name), default group for
     // quick add, voice input, product suggestions, share defaults.

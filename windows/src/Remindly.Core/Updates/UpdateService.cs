@@ -13,6 +13,10 @@ namespace Remindly.Core.Updates;
 /// </summary>
 public sealed class UpdateService
 {
+    public static string CurrentDisplayVersion => typeof(UpdateService).Assembly
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion.Split('+')[0]
+        ?? CurrentVersion.ToString(3);
     private static readonly HttpClient Http = CreateClient();
 
     public static Version CurrentVersion
@@ -35,7 +39,7 @@ public sealed class UpdateService
         return c;
     }
 
-    public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct)
+    public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct, bool includeBeta = false)
     {
         var current = CurrentVersion;
         ReleaseInfo? latest = null;
@@ -45,7 +49,7 @@ public sealed class UpdateService
             using var resp = await Http.GetAsync(UpdateLogic.ReleasesApiUrl, ct).ConfigureAwait(false);
             if (resp.IsSuccessStatusCode)
             {
-                latest = UpdateLogic.PickLatest(UpdateLogic.ParseReleaseList(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)));
+                latest = UpdateLogic.PickLatest(UpdateLogic.ParseReleaseList(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)), includeBeta);
                 if (latest == null) failure = "No Windows release has been published yet.";
             }
             else failure = $"GitHub answered {(int)resp.StatusCode} {resp.ReasonPhrase}.";
@@ -59,7 +63,7 @@ public sealed class UpdateService
             try
             {
                 var atom = await Http.GetStringAsync(UpdateLogic.ReleasesAtomUrl, ct).ConfigureAwait(false);
-                latest = UpdateLogic.PickLatest(UpdateLogic.ParseAtomTags(atom).Select(UpdateLogic.ReleaseFromTag).Where(r => r != null)!);
+                latest = UpdateLogic.PickLatest(UpdateLogic.ParseAtomTags(atom).Select(UpdateLogic.ReleaseFromTag).Where(r => r != null)!, includeBeta);
                 if (latest != null) failure = null;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -71,11 +75,11 @@ public sealed class UpdateService
             Log.Warn("Update check: " + failure);
             return new UpdateCheckResult(UpdateStatus.Unavailable, current, null, failure ?? "Update information is not available.");
         }
-        if (UpdateLogic.IsNewer(current, latest.Version))
+        if (UpdateLogic.IsNewer(CurrentDisplayVersion, latest))
         {
             Log.Info($"Update check: {latest.TagName} available (installed {current.ToString(3)})");
             return new UpdateCheckResult(UpdateStatus.UpdateAvailable, current, latest,
-                $"Remindly {latest.Version.ToString(3)} is available (you have {current.ToString(3)}).");
+                $"Remindly {latest.DisplayVersion} is available (you have {CurrentDisplayVersion}).");
         }
         Log.Info($"Update check: up to date ({current.ToString(3)}; latest {latest.TagName})");
         return new UpdateCheckResult(UpdateStatus.UpToDate, current, latest, $"You have the latest version ({current.ToString(3)}).");

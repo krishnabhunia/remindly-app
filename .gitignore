@@ -15,6 +15,10 @@ app/build/
 .idea/
 *.iml
 .DS_Store
+__pycache__/
+.dotnet-cli/
+dist/
+release-plan.json
 captures/
 
 # the published build is tracked on purpose

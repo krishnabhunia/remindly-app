@@ -289,7 +289,7 @@ fun MainScaffold(initialTab: Int) {
     }
     LaunchedEffect(selectedShopTab) { UiStore.update { it.copy(lastShopTab = selectedShopTab) } }
     // v2.9 (N47): quiet update check once a day (notification only when a newer build exists).
-    LaunchedEffect(Unit) { Updater.checkIfDue(context) }
+    LaunchedEffect(Unit) { Updater.checkOnStart(context) }
     // v2.7 (N42): Settings → "Open scheduled alerts" hands over to the gear host.
     val schedOpen by SchedNav.open.collectAsState()
     LaunchedEffect(schedOpen) { if (schedOpen) { SchedNav.open.value = false; openGear("SCHED") } }
