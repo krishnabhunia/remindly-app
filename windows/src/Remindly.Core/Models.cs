@@ -249,6 +249,18 @@ public sealed record ShopList
     public long? DeletedAt { get; init; }
 }
 
+/// <summary>A task list, using the shared Android backup schema.</summary>
+public sealed record TaskList
+{
+    public long Id { get; init; }
+    public string Name { get; init; } = "";
+    public string? Icon { get; init; }
+    public bool Pinned { get; init; }
+    public long CreatedAt { get; init; }
+    public long UpdatedAt { get; init; }
+    public long? DeletedAt { get; init; }
+}
+
 /// <summary>
 /// Settings. The Buy-list and sharing fields carry the Android names (they arrive with an Android
 /// backup); the rest are Windows-only.
@@ -256,6 +268,10 @@ public sealed record ShopList
 public sealed record AppSettings
 {
     // ── shared with Android (2.11) ──
+    public List<TaskList> TaskLists { get; init; } = new();
+    public bool GlobalTaskListsFirst { get; init; } = true;
+    public int TasksListsFirst { get; init; } = -1;
+    public string TaskListSort { get; init; } = "RECENT";
     public List<ShopList> ShopLists { get; init; } = new();
     public long? ShopDefaultListId { get; init; }
     public bool ShareIncludeDone { get; init; }
@@ -269,6 +285,7 @@ public sealed record AppSettings
     public string ShopDefaultGroup { get; init; } = "";
 
     // ── Windows ──
+    public bool DesktopCompactRows { get; init; }
     /// <summary>The "Auto update" checkbox: check GitHub once a day and install new versions in the background.</summary>
     public bool UpdateAutoCheck { get; init; } = true;
     public bool UpdateBeta { get; init; }

@@ -29,18 +29,23 @@ public partial class MainWindow : Window
         Title = $"Remindly {v}";
         VersionText.Text = $"Version {v} · {InstallInfo.ModeLabel}";
         _snackTimer.Tick += (_, _) => HideSnack();
-        AppState.Current.Changed += () => (Page.Content as IPage)?.Refresh();
+        AppState.Current.Changed += () => { (Page.Content as IPage)?.Refresh(); RefreshFooter(); };
         if (App.Updates != null) App.Updates.Changed += () => Dispatcher.BeginInvoke(RefreshUpdateBanner);
         Loaded += (_, _) => RefreshUpdateBanner();
         SetMode(AppState.Current.Settings.LastMode, initial: true);
+        RefreshFooter();
     }
+
+    private void RefreshFooter() => FooterText.Text = AppState.Current.Settings.CloseToTray ? "Reminders stay active while Remindly runs in the notification area" : "Closing the window exits Remindly and stops reminders";
 
     public BuyView Buy => (BuyView)PageFor(BuyTab);
 
     private FrameworkElement PageFor(TabItem tab)
     {
         if (_pages.TryGetValue(tab, out var p)) return p;
-        FrameworkElement page = tab == TasksTab ? new ItemsView(Tab.TASKS)
+        FrameworkElement page = tab == OverviewTab ? new WorkspaceView(false)
+            : tab == RemindersTab ? new WorkspaceView(true)
+            : tab == TasksTab ? new TaskListsView()
             : tab == LearnTab ? new ItemsView(Tab.LEARN)
             : tab == CallsTab ? new CallsView()
             : tab == BuyTab ? new BuyView()
@@ -57,14 +62,13 @@ public partial class MainWindow : Window
     {
         bool shop = mode == "SHOP";
         _switchingMode = true;
-        TaskModeButton.IsChecked = !shop;
-        ShopModeButton.IsChecked = shop;
+        ModePicker.SelectedIndex = shop ? 1 : 0;
         _switchingMode = false;
         App.ApplyMode(shop ? "SHOP" : "TASK");
-        foreach (var t in new[] { TasksTab, LearnTab, CallsTab }) t.Visibility = shop ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var t in new[] { TasksTab, RemindersTab, LearnTab, CallsTab }) t.Visibility = shop ? Visibility.Collapsed : Visibility.Visible;
         foreach (var t in new[] { BuyTab, ShopsTab, ProductsTab }) t.Visibility = shop ? Visibility.Visible : Visibility.Collapsed;
         if (NavTabs.SelectedItem is not TabItem sel || sel.Visibility != Visibility.Visible || initial)
-            NavTabs.SelectedItem = shop ? BuyTab : TasksTab;
+            NavTabs.SelectedItem = initial ? OverviewTab : shop ? BuyTab : TasksTab;
         if (!initial && AppState.Current.Settings.LastMode != (shop ? "SHOP" : "TASK"))
             AppState.Current.UpdateSettingsQuiet(s => s with { LastMode = shop ? "SHOP" : "TASK" });
         ShowSelected();
@@ -73,16 +77,16 @@ public partial class MainWindow : Window
     public void Go(TabItem tab)
     {
         bool shopTab = tab == BuyTab || tab == ShopsTab || tab == ProductsTab;
-        bool taskTab = tab == TasksTab || tab == LearnTab || tab == CallsTab;
-        if (shopTab && TaskModeButton.IsChecked == true) SetMode("SHOP");
-        if (taskTab && ShopModeButton.IsChecked == true) SetMode("TASK");
+        bool taskTab = tab == RemindersTab || tab == TasksTab || tab == LearnTab || tab == CallsTab;
+        if (shopTab && ModePicker.SelectedIndex == 0) SetMode("SHOP");
+        if (taskTab && ModePicker.SelectedIndex == 1) SetMode("TASK");
         NavTabs.SelectedItem = tab;
         ShowSelected();
     }
 
     public TabItem TabFor(Tab t) => t switch { Tab.SHOP => BuyTab, Tab.LEARN => LearnTab, _ => TasksTab };
 
-    public IEnumerable<TabItem> AllTabs => new[] { TasksTab, LearnTab, CallsTab, BuyTab, ShopsTab, ProductsTab, SettingsTab };
+    public IEnumerable<TabItem> AllTabs => new[] { OverviewTab, TasksTab, RemindersTab, LearnTab, CallsTab, BuyTab, ShopsTab, ProductsTab, SettingsTab };
 
     private void ShowSelected()
     {
@@ -97,9 +101,7 @@ public partial class MainWindow : Window
         if (e.OriginalSource == NavTabs) ShowSelected();
     }
 
-    private void TaskMode_Checked(object sender, RoutedEventArgs e) { if (!_switchingMode) SetMode("TASK"); }
-
-    private void ShopMode_Checked(object sender, RoutedEventArgs e) { if (!_switchingMode) SetMode("SHOP"); }
+    private void ModePicker_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (!_switchingMode && Page != null) SetMode(ModePicker.SelectedIndex == 1 ? "SHOP" : "TASK"); }
 
     // ───────────────────────── entry points (tray, alerts) ─────────────────────────
 
@@ -111,7 +113,11 @@ public partial class MainWindow : Window
             Go(BuyTab);
             Buy.OpenList(lid);
         }
-        else Go(TabFor(item.Tab));
+        else
+        {
+            Go(TabFor(item.Tab));
+            if (item.Tab == Tab.TASKS) ((TaskListsView)PageFor(TasksTab)).OpenList(TaskLists.IdOf(item, AppState.Current.Settings.TaskLists));
+        }
         ItemEditor.Edit(item);
     }
 
@@ -125,7 +131,7 @@ public partial class MainWindow : Window
     public void NewItemFromTray()
     {
         Go(TasksTab);
-        ItemEditor.New(Tab.TASKS);
+        Snack("Choose a task list, then use + New to add your task.");
     }
 
     // ───────────────────────── snackbar ─────────────────────────

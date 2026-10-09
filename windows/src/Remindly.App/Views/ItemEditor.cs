@@ -43,6 +43,7 @@ public sealed class ItemEditor : EditorWindow
     private readonly TextBox _repeatCount = new() { Width = 60 };
     private readonly TextBlock _preview = Ui.Sub("");
     private readonly CheckBox _personal = new() { Content = "Personal (hidden in reminders)" };
+    private ComboBox? _taskList;
     // Buy
     private ComboBox? _list;
     private TextBox? _qty;
@@ -70,6 +71,11 @@ public sealed class ItemEditor : EditorWindow
             item = item with { ListId = list?.Id, Group = list?.Name, Personal = list?.Personal == true };
             if (list?.UsualShopId is long sid && state.Shops.FirstOrDefault(s => s.Id == sid) is Shop us) item = item with { ShopId = us.Id, ShopName = us.Name };
         }
+        if (tab == Tab.TASKS && listId is long taskId)
+        {
+            var taskList = state.Settings.TaskLists.FirstOrDefault(l => l.Id == taskId && l.DeletedAt == null);
+            item = item with { ListId = taskList?.Id, Group = taskList?.Name };
+        }
         new ItemEditor(item, isNew: true).Open();
     }
 
@@ -85,6 +91,14 @@ public sealed class ItemEditor : EditorWindow
         Field("Title", _title);
         _title.TextChanged += (_, _) => CheckDuplicate();
 
+        if (item.Tab == Tab.TASKS)
+        {
+            _taskList = new ComboBox();
+            _taskList.Items.Add(new TaskChoice(null));
+            foreach (var l in state.Settings.TaskLists.Where(l => l.DeletedAt == null)) _taskList.Items.Add(new TaskChoice(l));
+            _taskList.SelectedItem = _taskList.Items.Cast<TaskChoice>().FirstOrDefault(c => c.List?.Id == item.ListId) ?? _taskList.Items[0];
+            Field("Task list", _taskList);
+        }
         if (item.Tab == Tab.SHOP) BuildBuy(item, state);
         if (item.Tab == Tab.LEARN) BuildLearn(item);
 
@@ -302,6 +316,8 @@ public sealed class ItemEditor : EditorWindow
         ShowWarning(ItemRules.DupActiveMatch(state.Data.Items, _orig.Tab, t, _orig.Id) ? $"\"{t}\" is already on your {TabNames.Title(_orig.Tab)} list." : null);
     }
 
+    private sealed record TaskChoice(TaskList? List) { public override string ToString() => List?.Name ?? "Unsorted"; }
+
     protected override bool Save()
     {
         var state = AppState.Current;
@@ -320,6 +336,11 @@ public sealed class ItemEditor : EditorWindow
             // A new schedule starts clean: no leftover snooze from the old one.
             SnoozedUntil = d.DueAt != _orig.DueAt ? null : _orig.SnoozedUntil,
         };
+        if (_orig.Tab == Tab.TASKS)
+        {
+            var taskList = (_taskList?.SelectedItem as TaskChoice)?.List;
+            d = d with { ListId = taskList?.Id, Group = taskList?.Name };
+        }
         if (_orig.Tab == Tab.SHOP)
         {
             var list = (_list?.SelectedItem as ListChoice)?.List;

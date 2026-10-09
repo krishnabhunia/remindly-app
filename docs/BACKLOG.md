@@ -5,6 +5,10 @@ Development of the next version starts **only** when Krishna explicitly says "re
 Versions are never pre-numbered: a queue item gets a version number only when Krishna asks for that release.
 Standing rule: **no code change of any kind without explicit approval** — plan first, then approval, then build.
 
+## Approved request — Desktop Pro Windows UI (9 October 2026, PR preview)
+
+Krishna selected Desktop Pro after reviewing multiple detailed HTML designs and explicitly approved creating a PR and practically testing it. **Do not merge automatically.** The preview moves the mode picker left, adds Overview and Reminders, sidebar navigation, Windows task lists and nine settings categories. Default opening view changes to Overview; Tasks uses lists first with global and per-Tasks controls. Minimum width changes to 1040 logical pixels for the detailed desktop layout. Compact rows applies globally to the desktop's shared visual system. Unsupported HTML proposals are not dummy controls. See `docs/DESKTOP-PRO.md` for compatibility, test evidence, class sweep and persistence/reboot checklist. Existing release automation assigns the beta version; macOS stays empty.
+
 ## Approved request — Tasks lists first (8 October 2026, unreleased PR)
 
 Krishna requested a list before adding tasks, similar to the Shop task page, and approved the Shop-style HTML design and PR implementation. Tasks now opens on list cards; create a list before adding a new task. Existing groups migrate to lists, and ungrouped tasks remain in Unsorted. List deletion retains tasks and reminders. The new opening view has a global default (On) and Tasks Inherit/On/Off override. See `docs/TASK-LISTS.md`, the approved HTML prototype and the device checklist. Release numbering remains unchanged.

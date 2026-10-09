@@ -207,6 +207,9 @@ public static class DataStore
         var s = d.Settings ?? new AppSettings();
         s = s with
         {
+            TaskLists = TaskLists.Normalize(s.TaskLists ?? new()),
+            TasksListsFirst = s.TasksListsFirst is >= -1 and <= 1 ? s.TasksListsFirst : -1,
+            TaskListSort = s.TaskListSort == "AZ" ? "AZ" : "RECENT",
             ShopLists = (s.ShopLists ?? new()).Where(l => l != null).Select(ShopLists.Heal).ToList(),
             ShopGroups = s.ShopGroups ?? new(),
             ShopGroupOrder = s.ShopGroupOrder ?? new(),
@@ -234,6 +237,7 @@ public static class DataStore
             var changed = seed.Items.ToDictionary(i => i.Id);
             d.Items = d.Items.Select(i => changed.TryGetValue(i.Id, out var c) ? c : i).ToList();
         }
+        TaskLists.MigrateGroups(d.Items, ref s, now);
         d.Settings = ShopLists.MirrorIntoSettings(s with { ShopLists = seed.Lists, ShopDefaultListId = seed.DefaultListId });
         return d;
     }
@@ -281,11 +285,12 @@ public static class DataStore
         current.Chains = mergedChains;
 
         var s = current.Settings;
-        int listsBefore = ShopLists.Live(s.ShopLists).Count;
+        int listsBefore = ShopLists.Live(s.ShopLists).Count + s.TaskLists.Count(l => l.DeletedAt == null);
         var mergedLists = ShopLists.Merge(s.ShopLists, inc.Settings.ShopLists);
         s = s with
         {
             ShopLists = mergedLists,
+            TaskLists = TaskLists.Merge(s.TaskLists, inc.Settings.TaskLists),
             ShopDefaultListId = s.ShopDefaultListId ?? inc.Settings.ShopDefaultListId,
             ShareIncludeDone = inc.Settings.ShareIncludeDone,
             ShareIncludeQty = inc.Settings.ShareIncludeQty,
@@ -297,7 +302,7 @@ public static class DataStore
         var healed = Heal(current, now);
         current.Items = healed.Items;
         current.Settings = healed.Settings;
-        int lists = ShopLists.Live(current.Settings.ShopLists).Count - listsBefore;
+        int lists = ShopLists.Live(current.Settings.ShopLists).Count + current.Settings.TaskLists.Count(l => l.DeletedAt == null) - listsBefore;
         return new ImportSummary(items, calls, Math.Max(0, lists), shops, products, LooksLikeAndroid(incoming));
     }
 

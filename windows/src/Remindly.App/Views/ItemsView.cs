@@ -10,15 +10,17 @@ namespace Remindly.App.Views;
 public sealed class ItemsView : DockPanel, IPage
 {
     private readonly Tab _tab;
+    private readonly long? _taskListId;
     private readonly StackPanel _list = new();
     private readonly TextBlock _count = Ui.Sub("");
     private readonly TextBox _quick;
     private readonly TextBox _search;
     private bool _doneView;
 
-    public ItemsView(Tab tab)
+    public ItemsView(Tab tab, long? taskListId = null)
     {
         _tab = tab;
+        _taskListId = taskListId;
         LastChildFill = true;
         var noun = tab == Tab.LEARN ? "something to learn" : "a task";
         _quick = Ui.Input(placeholder: $"Add {noun} — type and press Enter", onEnter: QuickAdd);
@@ -32,7 +34,7 @@ public sealed class ItemsView : DockPanel, IPage
             new Border { Width = 12 },
             _search,
             new Border { Width = 8 },
-            Ui.Primary("+ New", () => ItemEditor.New(_tab), "New with all details (Ctrl+N)"));
+            Ui.Primary("+ New", () => ItemEditor.New(_tab, _taskListId), "New with all details (Ctrl+N)"));
         var bar = Ui.Columns("*,Auto", title, right);
         bar.Margin = new Thickness(0, 0, 0, 10);
         SetDock(bar, Dock.Top);
@@ -49,7 +51,7 @@ public sealed class ItemsView : DockPanel, IPage
         {
             if (e.Key == System.Windows.Input.Key.N && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
             {
-                ItemEditor.New(_tab);
+                ItemEditor.New(_tab, _taskListId);
                 e.Handled = true;
             }
         };
@@ -61,7 +63,13 @@ public sealed class ItemsView : DockPanel, IPage
         if (text.Length == 0) return;
         var state = AppState.Current;
         if (ItemRules.DupActiveMatch(state.Data.Items, _tab, text) && !Ui.Confirm($"\"{text}\" is already on your {TabNames.Title(_tab)} list. Add it again?")) return;
-        state.Upsert(state.NewItem(_tab, text));
+        var item = state.NewItem(_tab, text);
+        if (_tab == Tab.TASKS && _taskListId is long id)
+        {
+            var list = state.Settings.TaskLists.FirstOrDefault(l => l.Id == id && l.DeletedAt == null);
+            item = item with { ListId = list?.Id, Group = list?.Name };
+        }
+        state.Upsert(item);
         _quick.Clear();
         App.Current.Main.Snack($"Added to {TabNames.Title(_tab)}");
     }
@@ -71,7 +79,7 @@ public sealed class ItemsView : DockPanel, IPage
         var state = AppState.Current;
         long now = state.Now;
         var q = _search.Text.Trim();
-        var live = state.LiveItems(_tab).ToList();
+        var live = state.LiveItems(_tab).Where(i => _tab != Tab.TASKS || _taskListId == null || TaskLists.IdOf(i, state.Settings.TaskLists) == _taskListId).ToList();
         var shown = live.Where(i => i.Done == _doneView)
             .Where(i => q.Length == 0 || i.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || (i.Topic ?? "").Contains(q, StringComparison.OrdinalIgnoreCase))

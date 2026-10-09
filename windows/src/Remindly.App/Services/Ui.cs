@@ -72,6 +72,7 @@ public static class Ui
     public static Border Card(UIElement child, Action? onDoubleClick = null)
     {
         var b = new Border { Child = child, Style = (Style)Application.Current.Resources["Card"] };
+        if (AppState.Current.Settings.DesktopCompactRows) b.Padding = new Thickness(12, 4, 12, 4);
         if (onDoubleClick != null)
             b.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { onDoubleClick(); e.Handled = true; } };
         return b;

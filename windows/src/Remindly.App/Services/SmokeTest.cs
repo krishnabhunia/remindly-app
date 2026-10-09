@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Remindly.App.Views;
@@ -39,6 +40,12 @@ public static class SmokeTest
     private static async Task RunAsync(MainWindow main)
     {
         var state = AppState.Current;
+        if (state.Data.Items.Any(i => i.Title == "Desktop Pro test task"))
+        {
+            Check(state.Settings.TaskLists.Any(l => l.Name == "Work") && state.Settings.DesktopCompactRows && state.Settings.TasksListsFirst == 1, "preferences and task lists survive process restart");
+            Check(state.Data.Items.Any(i => i.Title == "Desktop Pro test task" && TaskLists.IdOf(i,state.Settings.TaskLists) != TaskLists.UnsortedId), "task list assignment survives process restart");
+            main.Show(); main.Go(main.TabFor(Tab.TASKS)); await Idle(); Capture(main,"reopened-task-lists"); return;
+        }
         Seed(state);
         main.WindowStartupLocation = WindowStartupLocation.Manual;
         main.Left = 0;
@@ -54,6 +61,57 @@ public static class SmokeTest
             await Idle();
             Capture(main, "tab-" + ((string)tab.Header).ToLowerInvariant());
         }
+
+        main.SetMode("TASK");
+        main.Go(main.AllTabs.First(t => (string)t.Header == "Settings"));
+        var settingsView = (SettingsView)main.Page.Content;
+        foreach (var category in SettingsView.Categories)
+        {
+            settingsView.SelectCategory(category); await Idle();
+            Check(Descendants<TextBlock>(settingsView).Any(t => t.Text.Length > 0), "settings content: " + category);
+            Capture(main, "settings-" + category.Replace(" & ", "-").ToLowerInvariant());
+        }
+        Check(main.ModePicker.TranslatePoint(new Point(),main).X < main.VersionText.TranslatePoint(new Point(),main).X, "mode switch is on the left of installed version");
+        Check(main.UpdateBanner.Visibility == Visibility.Collapsed, "no update button without an eligible update");
+        main.Go(main.TabFor(Tab.TASKS));
+        var taskListsView = (TaskListsView)main.Page.Content;
+        var work = state.Settings.TaskLists.First(l => l.Name == "Work");
+        taskListsView.OpenList(work.Id); await Idle(); Capture(main,"tasks-work-list");
+        var quick = Descendants<TextBox>(taskListsView).First(t => t.Width != 200);
+        quick.Text = "Desktop Pro test task";
+        Descendants<Button>(taskListsView).First(b => (b.Content as string) == "Add").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(state.LiveItems(Tab.TASKS).Any(i => i.Title == "Desktop Pro test task" && i.ListId == work.Id), "quick-add stores task in selected list");
+        var addedTask = state.LiveItems(Tab.TASKS).First(i => i.Title == "Desktop Pro test task" && i.ListId == work.Id);
+        var doneChip = Descendants<RadioButton>(taskListsView).First(r => (r.Content as string) == "Done");
+        doneChip.IsChecked = true; state.Complete(addedTask); await Idle();
+        Check(Descendants<TextBlock>(taskListsView).Any(t => t.Text == addedTask.Title), "Done view remains selected after completing a task");
+        state.Revive(state.Item(addedTask.Id)!);
+        Descendants<RadioButton>(taskListsView).First(r => (r.Content as string) == "Active").IsChecked = true;
+        taskListsView.BackToLists(); await Idle(); Capture(main,"tasks-lists-after-add");
+        await ShowAndCapture(() => new TaskListEditor(work).Open(), "editor-task-list");
+        var listEditor = new TaskListEditor(null); listEditor.Open(); await Idle();
+        Descendants<TextBox>(listEditor).First().Text = "UI created list";
+        Descendants<Button>(listEditor).First(b => (b.Content as string) == "Save").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(state.Settings.TaskLists.Any(l => l.Name == "UI created list"), "new list saved through editor button");
+        var createdList = state.Settings.TaskLists.First(l => l.Name == "UI created list");
+        var renameEditor = new TaskListEditor(createdList); renameEditor.Open(); await Idle();
+        Descendants<TextBox>(renameEditor).First().Text = "Renamed list";
+        Descendants<Button>(renameEditor).First(b => (b.Content as string) == "Save").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(state.Settings.TaskLists.Any(l => l.Id == createdList.Id && l.Name == "Renamed list"), "rename list saved through editor button");
+        await Idle();
+        var taskSnapshot = state.TakeSnapshot();
+        var workCard = Descendants<System.Windows.Controls.Border>(taskListsView).First(b => b.Style == Application.Current.Resources["Card"] && Descendants<TextBlock>(b).Any(t => t.Text.Contains("Work")) && Descendants<Button>(b).Any(c => (c.Content as string) == "Delete"));
+        Descendants<Button>(workCard).First(b => (b.Content as string) == "Delete").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(TaskLists.IdOf(state.LiveItems(Tab.TASKS).First(i => i.Title == "Desktop Pro test task"),state.Settings.TaskLists) == TaskLists.UnsortedId, "delete task list keeps task in Unsorted");
+        state.Restore(taskSnapshot);
+        Check(state.Settings.TaskLists.Any(l => l.Id == work.Id && l.DeletedAt == null), "undo restores task list");
+        state.UpdateSettings(s => s with { DesktopCompactRows = true, TasksListsFirst = 1 });
+        var reloaded = DataStore.Load();
+        Check(reloaded.Settings.DesktopCompactRows && reloaded.Settings.TasksListsFirst == 1 && reloaded.Settings.TaskLists.Any(l => l.Id == work.Id), "saved preferences and lists survive reopening data");
+        Check(reloaded.Items.Any(i => i.Title == "Desktop Pro test task" && i.ListId == work.Id), "task and selected list survive reopening data");
+        main.Width = main.MinWidth; main.Go(main.AllTabs.First(t => (string)t.Header == "Settings"));
+        settingsView.SelectCategory("Updates"); await Idle(); Capture(main,"minimum-width-settings");
+        main.Width = 1200;
 
         // Buy: inside a list, Bought view, Buy Now
         var groceries = state.Lists.First(l => l.Name == "Groceries");
@@ -109,6 +167,7 @@ public static class SmokeTest
     private static void Seed(AppState state)
     {
         long now = state.Now;
+        state.UpdateSettings(s => s with { TaskLists = new() { new TaskList { Id = Ids.Next(), Name = "Work", Pinned = true, CreatedAt = now, UpdatedAt = now }, new TaskList { Id = Ids.Next(), Name = "Personal", CreatedAt = now, UpdatedAt = now } } });
         var groceries = state.CreateList(new ShopList { Name = "Groceries", Icon = "🥦", Pinned = true, ShoppingDay = now });
         var party = state.CreateList(new ShopList { Name = "Party", Icon = "🎉" });
         state.CreateList(new ShopList { Name = "Monthly stock", Icon = "📦", Personal = true });
@@ -152,6 +211,16 @@ public static class SmokeTest
         Capture(w, name);
         w.Close();
         await Idle();
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var n = 0; n < VisualTreeHelper.GetChildrenCount(root); n++)
+        {
+            var child = VisualTreeHelper.GetChild(root,n);
+            if (child is T match) yield return match;
+            foreach (var descendant in Descendants<T>(child)) yield return descendant;
+        }
     }
 
     private static async Task Idle()

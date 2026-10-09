@@ -11,6 +11,9 @@ namespace Remindly.App.Views;
 /// <summary>Settings: Updates (Auto update), General, Sharing a list, Backup &amp; Android import, Bin, About.</summary>
 public sealed class SettingsView : ScrollViewer, IPage
 {
+    public static readonly string[] Categories = { "General", "Appearance", "Reminders", "Tasks", "Learn", "Calls", "Shopping", "Data & backup", "Updates" };
+    private string _category = "General";
+    public void SelectCategory(string category) { if (!Categories.Contains(category)) throw new ArgumentException("Unknown settings category"); _category = category; Refresh(); }
     private readonly StackPanel _root = new() { MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly TextBlock _updateStatus = Ui.Sub("");
     private readonly TextBlock _updateTimes = Ui.Sub("");
@@ -43,6 +46,10 @@ public sealed class SettingsView : ScrollViewer, IPage
         var s = state.Settings;
         _root.Children.Clear();
         _root.Children.Add(Ui.H1("Settings"));
+        _root.Children.Add(Ui.Sub("Preferences, reminders, list behavior and your data"));
+        var tabs = new WrapPanel { Margin = new Thickness(0, 16, 0, 8) };
+        foreach (var category in Categories) tabs.Children.Add(Ui.Chip(category, "settings-category", category == _category, () => SelectCategory(category)));
+        _root.Children.Add(tabs);
 
         // ── Updates ──
         var v = UpdateService.CurrentDisplayVersion;
@@ -63,18 +70,18 @@ public sealed class SettingsView : ScrollViewer, IPage
         upd.Children.Add(Ui.Row(Detach(_checkBtn), Detach(_installBtn), Ui.Btn("Releases page", () => InstallInfo.OpenUrl(UpdateLogic.ReleasesUrl))));
         upd.Children.Add(Detach(_updateProgress));
         upd.Children.Add(Detach(_updateStatus));
-        _root.Children.Add(Card(upd));
+        if (_category == "Updates") _root.Children.Add(Card(upd));
         RefreshUpdates();
 
         // ── General ──
-        var gen = Section("General", null);
-        gen.Children.Add(Ui.Setting("Start with Windows", s.StartWithWindows, on =>
+        var gen = Section(_category == "Reminders" ? "Reminder defaults" : "Startup and window", null);
+        if (_category == "General") gen.Children.Add(Ui.Setting("Start with Windows", s.StartWithWindows, on =>
         {
             InstallInfo.SetStartWithWindows(on);
             state.UpdateSettingsQuiet(x => x with { StartWithWindows = on });
         }, "Starts hidden in the notification area so reminders fire even before you open Remindly."));
-        gen.Children.Add(Ui.Setting("Keep running in the notification area when the window is closed", s.CloseToTray,
-            on => state.UpdateSettingsQuiet(x => x with { CloseToTray = on }), "Off: closing the window exits Remindly and no reminders fire until you start it again."));
+        if (_category == "General") gen.Children.Add(Ui.Setting("Keep running in the notification area when the window is closed", s.CloseToTray,
+            on => state.UpdateSettings(x => x with { CloseToTray = on }), "Off: closing the window exits Remindly and no reminders fire until you start it again."));
         var snooze = new ComboBox { Width = 90 };
         foreach (var m in new[] { 5, 10, 15, 30, 60 }) snooze.Items.Add(m);
         snooze.SelectedItem = new[] { 5, 10, 15, 30, 60 }.Contains(s.SnoozeMinutes) ? s.SnoozeMinutes : 10;
@@ -83,8 +90,8 @@ public sealed class SettingsView : ScrollViewer, IPage
         for (int h = 0; h < 24; h++) hour.Items.Add($"{h:00}:00");
         hour.SelectedIndex = s.DefaultDueHour;
         hour.SelectionChanged += (_, _) => state.UpdateSettingsQuiet(x => x with { DefaultDueHour = hour.SelectedIndex });
-        gen.Children.Add(Ui.Row(Ui.Sub("Snooze for "), snooze, Ui.Sub("  minutes      A date without a time rings at "), hour));
-        _root.Children.Add(Card(gen));
+        if (_category == "Reminders") gen.Children.Add(Ui.Row(Ui.Sub("Snooze for "), snooze, Ui.Sub("  minutes      A date without a time rings at "), hour));
+        if (_category == "General" || _category == "Reminders") _root.Children.Add(Card(gen));
 
         // ── Sharing a list ──
         var share = Section("Sharing a list", "The text is \"Groceries:-\", a blank line, then \"1. Milk - 2 / L - Urgent - Bought\".");
@@ -95,7 +102,7 @@ public sealed class SettingsView : ScrollViewer, IPage
         var suffix = new TextBox { Text = s.ShareHeadingSuffix, Width = 70 };
         suffix.LostFocus += (_, _) => state.UpdateSettingsQuiet(x => x with { ShareHeadingSuffix = suffix.Text });
         share.Children.Add(Ui.Row(Ui.Sub("Text after the list name "), suffix));
-        _root.Children.Add(Card(share));
+        if (_category == "Shopping") _root.Children.Add(Card(share));
 
         // ── Backup ──
         var bk = Section("Backup and your phone", "Import an Android backup (Settings → Backup on the phone, a remindly-data-*.json file) to bring your tasks, lists, calls and Buy items to this PC. Importing twice changes nothing; the newer copy of each record wins.");
@@ -104,7 +111,7 @@ public sealed class SettingsView : ScrollViewer, IPage
             Ui.Btn("Export a backup…", Export),
             Ui.Btn("Open the data folder", () => InstallInfo.OpenUrl(AppPaths.DataRoot))));
         bk.Children.Add(Ui.Sub($"Saved automatically to {AppPaths.DataFile} · a daily copy is kept for 7 days."));
-        _root.Children.Add(Card(bk));
+        if (_category == "Data & backup") _root.Children.Add(Card(bk));
 
         // ── Bin ──
         var binItems = state.Data.Items.Where(i => i.DeletedAt != null).OrderByDescending(i => i.DeletedAt).ToList();
@@ -132,7 +139,39 @@ public sealed class SettingsView : ScrollViewer, IPage
                 state.Data.Calls?.RemoveAll(x => x.DeletedAt != null);
                 state.UpdateSettings(x => x);
             }, style: "Danger"));
-        _root.Children.Add(Card(bin));
+        if (_category == "Data & backup") _root.Children.Add(Card(bin));
+
+        if (_category == "Appearance")
+        {
+            var appearance = Section("Desktop Pro", "A clear sidebar, neutral surfaces and the mode selector on the left.");
+            appearance.Children.Add(Ui.Setting("Compact item rows", s.DesktopCompactRows, on => state.UpdateSettings(x => x with { DesktopCompactRows = on }), "Reduce the space around task, reminder and shopping cards."));
+            appearance.Children.Add(Ui.Sub("The Windows app uses the light Desktop Pro design. Windows display scaling controls the overall text and window size."));
+            _root.Children.Add(Card(appearance));
+        }
+        if (_category == "Tasks")
+        {
+            var tasks = Section("Task navigation", "Lists keep projects separate; tasks keep their dates, repeats and priority.");
+            tasks.Children.Add(Ui.Setting("Global default: open lists first", s.GlobalTaskListsFirst, on => state.UpdateSettingsQuiet(x => x with { GlobalTaskListsFirst = on })));
+            var first = new ComboBox { Width = 180, ItemsSource = new[] { "Inherit global default", "Lists first", "All tasks first" }, SelectedIndex = s.TasksListsFirst == -1 ? 0 : s.TasksListsFirst == 1 ? 1 : 2 };
+            first.SelectionChanged += (_,_) => state.UpdateSettingsQuiet(x => x with { TasksListsFirst = first.SelectedIndex == 0 ? -1 : first.SelectedIndex == 1 ? 1 : 0 });
+            tasks.Children.Add(Ui.Row(Ui.Sub("Tasks override   "), first));
+            tasks.Children.Add(Ui.Btn("Manage task lists", () => App.Current.Main.Go(App.Current.Main.TabFor(Tab.TASKS))));
+            _root.Children.Add(Card(tasks));
+        }
+        if (_category == "Learn")
+        {
+            var learn = Section("Learning workspace", "Edit course details, platform, topic, progress, time spent and course links in each learning item.");
+            learn.Children.Add(Ui.Sub("Use spaced revision or a custom repeat schedule in the editor. Learning reminders use the shared defaults on the Reminders settings page."));
+            learn.Children.Add(Ui.Row(Ui.Primary("Open Learn", () => App.Current.Main.Go(App.Current.Main.TabFor(Tab.LEARN))), Ui.Btn("New learning item", () => ItemEditor.New(Tab.LEARN)), Ui.Btn("Reminder defaults", () => SelectCategory("Reminders"))));
+            _root.Children.Add(Card(learn));
+        }
+        if (_category == "Calls")
+        {
+            var calls = Section("Call backs", "Create named call backs with phone numbers, dates and repeat schedules. Open WhatsApp from a saved call back.");
+            calls.Children.Add(Ui.Sub("Automatic call-log detection stays on Android. Call backs on this PC use the shared snooze and reminder defaults."));
+            calls.Children.Add(Ui.Row(Ui.Primary("Open Calls", () => App.Current.Main.Go(App.Current.Main.AllTabs.First(t => (string)t.Header == "Calls"))), Ui.Btn("Reminder defaults", () => SelectCategory("Reminders"))));
+            _root.Children.Add(Card(calls));
+        }
 
         // ── About ──
         var about = Section("About", null);
@@ -141,7 +180,7 @@ public sealed class SettingsView : ScrollViewer, IPage
         about.Children.Add(Ui.Sub("The Windows companion of the Remindly Android app: Tasks · Learn · Calls ⇄ Buy (lists) · Shops · Products. " +
             "Geofenced shop arrivals, call-log detection, maps and cloud sync stay on the phone."));
         about.Children.Add(Ui.Row(Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
-        _root.Children.Add(Card(about));
+        if (_category == "General") _root.Children.Add(Card(about));
     }
 
     private static T Detach<T>(T e) where T : FrameworkElement

@@ -102,9 +102,9 @@ public partial class App : Application
     {
         var shop = mode == "SHOP";
         var r = Current.Resources;
-        r["AccentBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0x0E, 0x9F, 0x6E) : Color.FromRgb(0x5B, 0x4F, 0xE8));
-        r["AccentSoftBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0xE0, 0xF5, 0xEE) : Color.FromRgb(0xED, 0xEA, 0xFD));
-        r["AccentInkBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0x0B, 0x6E, 0x4F) : Color.FromRgb(0x3A, 0x2F, 0xA8));
+        r["AccentBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0x0E, 0x9F, 0x6E) : Color.FromRgb(0x3B, 0x58, 0x6C));
+        r["AccentSoftBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0xE0, 0xF5, 0xEE) : Color.FromRgb(0xE8, 0xEE, 0xF2));
+        r["AccentInkBrush"] = new SolidColorBrush(shop ? Color.FromRgb(0x0B, 0x6E, 0x4F) : Color.FromRgb(0x30, 0x48, 0x59));
         r["HeaderBrush"] = new LinearGradientBrush(
             shop ? Color.FromRgb(0x0E, 0x9F, 0x6E) : Color.FromRgb(0x4C, 0x3F, 0xD6),
             shop ? Color.FromRgb(0x00, 0xB8, 0xA9) : Color.FromRgb(0x8E, 0x5B, 0xF0), 45);
