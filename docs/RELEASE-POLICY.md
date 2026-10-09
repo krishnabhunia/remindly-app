@@ -1,6 +1,6 @@
 # Unified versions, builds and updates
 
-Krishna approved applying the supplied `version.md` and `workflow.md` rules across Remindly on 8 October 2026. macOS is explicitly reserved and empty for now; no macOS application or DMG is claimed.
+Krishna approved applying the supplied `versions_management.md` and `workflows.md` rules across Remindly on 8 October 2026. macOS is explicitly reserved and empty for now; no macOS application or DMG is claimed.
 
 One workflow, **Remindly build and release** (`.github/workflows/remindly.yml`), tests Android and Windows, checks the Windows UI and install/update/uninstall flow, signs and verifies the APK, then packages all supported platforms. The former independent workflows are retired.
 
@@ -47,3 +47,11 @@ Device pass: change channel/automatic checking â†’ verify â†’ close/re
 ## Adopted app and chat policy — 9 October 2026
 
 The three original supplied instruction documents are saved under `.github/instructions/`, with `AGENTS.md` applying them to future work in this repository. Direct user instructions override those documents; macOS remains empty. The desktop main app window shows its installed version. A top-right `Update to v<version>` action is visible only for a newer eligible update found from GitHub. Windows starts the verified download/install flow. The updated software app.md explicitly excludes Android APKs from these header rules; Android retains its existing UI.
+
+## Compliance review � 9 October 2026
+
+Main's desktop version display, conditional top-right `Update to v<version>` action, startup/manual update checks, optional beta channel, PR beta/main stable releases, semantic version automation, and exact ZIP folder layout satisfy the supplied instructions. Android's header is excluded; its installer still requires normal system confirmation. macOS remains empty under the user's explicit exception.
+
+The gap was the Actions Artifacts box: main published release-plan, two build payloads and two test reports alongside the requested ZIP. The unified workflow now builds/tests/signs/packages on one Windows runner, retaining intermediate files locally and publishing exactly one direct ZIP artifact. Unit/UI/installer/signature/package gates remain required; test results are visible in job logs without additional downloadable report artifacts. Existing completed runs retain their historical artifacts; the new rule applies to runs using this workflow.
+
+The source instruction copies now use the current names `software app.md`, `versions_management.md`, and `workflows.md`. AGENTS.md points to those copies. ZIP integrity and empty macOS are checked before upload. Release APK/checksum/manifest assets continue supporting app updates; those assets are separate from the Actions Artifacts group.

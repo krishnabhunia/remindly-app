@@ -1,231 +1,230 @@
 name: Remindly build and release
-
+permissions:
+  contents: read
+concurrency:
+  group: remindly-${{ github.event_name == 'pull_request' && 'beta' || 'stable' }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - name: Test version policy and exact ZIP layout
+      run: python -m unittest discover -s tools -p 'test_*.py'
+    - name: Calculate semantic version and channel
+      id: plan
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.number }}
+        COMMIT_SHA: ${{ github.sha }}
+      run: |
+        gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
+        ARGS=()
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].commit.message' > messages.txt
+          ARGS+=(--messages messages.txt)
+        else
+          OLD=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false and .target_commitish == env.COMMIT_SHA) | .tag_name' | head -1)
+          if [ -n "$OLD" ]; then ARGS+=(--already-released "$OLD"); fi
+        fi
+        python tools/release.py plan --event "$GITHUB_EVENT_PATH" --tags tags.txt --run "$GITHUB_RUN_NUMBER" "${ARGS[@]}"
+      shell: bash
+    - uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 8.0.x
+    - name: Desktop unit tests
+      run: dotnet test tests/Remindly.Core.Tests/Remindly.Core.Tests.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION --logger "trx;LogFileName=unit-tests.trx"
+      working-directory: windows
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_NOLOGO: '1'
+        BASE_VERSION: ${{ steps.plan.outputs.base }}
+        PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+    - name: Build portable application
+      run: |
+        dotnet publish src/Remindly.App/Remindly.App.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION -o out/portable
+        if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed' }
+        if (-not (Get-Item out/portable/Remindly.exe).VersionInfo.ProductVersion.StartsWith($env:PACKAGE_VERSION)) { throw 'Executable version does not match the package' }
+      working-directory: windows
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_NOLOGO: '1'
+        BASE_VERSION: ${{ steps.plan.outputs.base }}
+        PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+    - name: UI smoke test
+      timeout-minutes: 10
+      run: |
+        $shots = "$env:RUNNER_TEMP\smoke"
+        $data = "$env:RUNNER_TEMP\smoke-data"
+        $p = Start-Process out/portable/Remindly.exe -ArgumentList @('--smoke-test', $shots, '--data-dir', $data) -WindowStyle Hidden -PassThru
+        if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Smoke test timed out' }
+        Get-Content "$shots\smoke-result.txt"
+        if ($p.ExitCode -ne 0 -or -not (Select-String "$shots\smoke-result.txt" -Pattern PASSED -Quiet)) { throw 'UI smoke test failed' }
+      working-directory: windows
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_NOLOGO: '1'
+        BASE_VERSION: ${{ steps.plan.outputs.base }}
+        PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+    - name: Build installed application
+      run: |
+        $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+        & $iscc "/DMyAppVersion=$env:BASE_VERSION" "/DMyDisplayVersion=$env:PACKAGE_VERSION" "/DMyPackageName=Remindly_$env:PACKAGE_VERSION" "/DSourceDir=$PWD\out\portable" "/DOutputDir=$PWD\out\installer" installer/Remindly.iss
+        if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      working-directory: windows
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_NOLOGO: '1'
+        BASE_VERSION: ${{ steps.plan.outputs.base }}
+        PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+    - name: Install, upgrade while running, and uninstall
+      timeout-minutes: 10
+      run: '& ../.github/scripts/test-windows.ps1'
+      working-directory: windows
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_NOLOGO: '1'
+        BASE_VERSION: ${{ steps.plan.outputs.base }}
+        PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+    - name: Restore private build configuration
+      env:
+        EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
+        MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
+        REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
+        REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
+        REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
+        BUILD_VERSION: ${{ steps.plan.outputs.version }}
+        BUILD_CODE: ${{ steps.plan.outputs.code }}
+        KEYSTORE: ${{ secrets.REMINDLY_KEYSTORE_BASE64 }}
+        GOOGLE_CONFIG: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      run: |
+        foreach ($name in @('KEYSTORE', 'GOOGLE_CONFIG', 'MAPS_API_KEY', 'REMINDLY_STOREPASSWORD', 'REMINDLY_KEYALIAS', 'REMINDLY_KEYPASSWORD')) {
+          if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing required build secret: $name" }
+        }
+        [IO.File]::WriteAllBytes($env:REMINDLY_STOREFILE, [Convert]::FromBase64String($env:KEYSTORE))
+        $config = $env:GOOGLE_CONFIG
+        if (-not $config.TrimStart().StartsWith('{')) { $config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($config)) }
+        if (($config | ConvertFrom-Json).client.Count -eq 0) { throw 'Invalid Google services configuration' }
+        [IO.File]::WriteAllText((Join-Path $PWD 'app/google-services.json'), $config)
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: gradle/actions/setup-gradle@v5
+      with:
+        gradle-version: '8.7'
+    - name: Android unit tests
+      run: gradle --no-daemon --stacktrace -PremindlyVersion="$env:BUILD_VERSION" -PremindlyVersionCode="$env:BUILD_CODE" testDebugUnitTest
+      env:
+        EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
+        MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
+        REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
+        REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
+        REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
+        BUILD_VERSION: ${{ steps.plan.outputs.version }}
+        BUILD_CODE: ${{ steps.plan.outputs.code }}
+    - name: Build signed APK
+      run: gradle --no-daemon --stacktrace -PremindlyVersion="$env:BUILD_VERSION" -PremindlyVersionCode="$env:BUILD_CODE" assembleRelease
+      env:
+        EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
+        MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
+        REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
+        REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
+        REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
+        BUILD_VERSION: ${{ steps.plan.outputs.version }}
+        BUILD_CODE: ${{ steps.plan.outputs.code }}
+    - name: Verify signature and Maps configuration
+      run: |
+        $apk = 'app/build/outputs/apk/release/app-release.apk'
+        $bt = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+        $certs = & (Join-Path $bt.FullName 'apksigner.bat') verify --print-certs $apk
+        if ($LASTEXITCODE -ne 0 -or (($certs -join "`n") -replace ':','') -notmatch "SHA-1 digest $env:EXPECTED_CERT_SHA1") { throw 'APK signature verification failed' }
+        $manifest = & (Join-Path $bt.FullName 'aapt2.exe') dump xmltree --file AndroidManifest.xml $apk
+        if ($LASTEXITCODE -ne 0 -or ($manifest -join "`n") -notmatch 'com.google.android.geo.API_KEY[\s\S]{0,500}AIza') { throw 'APK Maps configuration verification failed' }
+        New-Item -ItemType Directory -Path dist/android -Force | Out-Null
+        Copy-Item -LiteralPath $apk -Destination "dist/android/Remindly_$env:BUILD_VERSION.apk"
+      env:
+        EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
+        MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
+        REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
+        REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
+        REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
+        BUILD_VERSION: ${{ steps.plan.outputs.version }}
+        BUILD_CODE: ${{ steps.plan.outputs.code }}
+    - name: Remove private build configuration
+      if: always()
+      run: Remove-Item -LiteralPath $env:REMINDLY_STOREFILE, 'app/google-services.json' -Force -ErrorAction SilentlyContinue
+      env:
+        EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
+        MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
+        REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
+        REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
+        REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
+        BUILD_VERSION: ${{ steps.plan.outputs.version }}
+        BUILD_CODE: ${{ steps.plan.outputs.code }}
+    - name: Package and verify the requested folder layout
+      run: python tools/release.py package --version "$env:VERSION_NAME" --android "dist/android/Remindly_$env:VERSION_NAME.apk" --portable windows/out/portable/Remindly.exe
+        --installer "windows/out/installer/Remindly_$env:VERSION_NAME.exe" --out dist
+      env:
+        VERSION_NAME: ${{ steps.plan.outputs.version }}
+    - name: Upload the ready-to-extract ZIP (no outer ZIP)
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        path: dist/Remindly_${{ steps.plan.outputs.version }}.zip
+        archive: false
+        if-no-files-found: error
+        retention-days: 30
+    - name: Publish beta or stable release and update the matching feed
+      if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref
+        == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish)
+      env:
+        VERSION_NAME: ${{ steps.plan.outputs.version }}
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: python tools/publish_release.py --plan release-plan.json --dist dist --apk "dist/android/Remindly_$env:VERSION_NAME.apk"
 on:
   pull_request:
-    branches: [main]
-    paths: ['app/**', 'windows/**', 'tools/**', 'VERSION', '*gradle*', '.github/**']
+    branches:
+    - main
+    paths:
+    - app/**
+    - windows/**
+    - tools/**
+    - VERSION
+    - '*gradle*'
+    - .github/**
   push:
-    branches: [main]
-    paths: ['app/**', 'windows/**', 'tools/**', 'VERSION', '*gradle*', '.github/**']
+    branches:
+    - main
+    paths:
+    - app/**
+    - windows/**
+    - tools/**
+    - VERSION
+    - '*gradle*'
+    - .github/**
   workflow_dispatch:
     inputs:
       publish:
         description: Publish a stable release after all checks pass (main only)
         type: boolean
         default: false
-
-permissions:
-  contents: read
-
-concurrency:
-  group: remindly-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'stable' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.plan.outputs.version }}
-      base: ${{ steps.plan.outputs.base }}
-      channel: ${{ steps.plan.outputs.channel }}
-      code: ${{ steps.plan.outputs.code }}
-      tag: ${{ steps.plan.outputs.tag }}
-      zip: ${{ steps.plan.outputs.zip }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Test version policy and exact ZIP layout
-        run: python -m unittest discover -s tools -p 'test_*.py'
-      - name: Calculate semantic version and channel
-        id: plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.number }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
-          ARGS=()
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].commit.message' > messages.txt
-            ARGS+=(--messages messages.txt)
-          else
-            OLD=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false and .target_commitish == env.COMMIT_SHA) | .tag_name' | head -1)
-            if [ -n "$OLD" ]; then ARGS+=(--already-released "$OLD"); fi
-          fi
-          python tools/release.py plan --event "$GITHUB_EVENT_PATH" --tags tags.txt --run "$GITHUB_RUN_NUMBER" "${ARGS[@]}"
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: release-plan
-          path: release-plan.json
-
-  windows:
-    needs: plan
-    runs-on: windows-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: pwsh
-        working-directory: windows
-    env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      DOTNET_NOLOGO: '1'
-      BASE_VERSION: ${{ needs.plan.outputs.base }}
-      PACKAGE_VERSION: ${{ needs.plan.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 8.0.x
-      - name: Desktop unit tests
-        run: dotnet test tests/Remindly.Core.Tests/Remindly.Core.Tests.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION --logger "trx;LogFileName=unit-tests.trx"
-      - name: Build portable application
-        run: |
-          dotnet publish src/Remindly.App/Remindly.App.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION -o out/portable
-          if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed' }
-          if (-not (Get-Item out/portable/Remindly.exe).VersionInfo.ProductVersion.StartsWith($env:PACKAGE_VERSION)) { throw 'Executable version does not match the package' }
-      - name: UI smoke test
-        timeout-minutes: 10
-        run: |
-          $shots = "$env:RUNNER_TEMP\smoke"
-          $data = "$env:RUNNER_TEMP\smoke-data"
-          $p = Start-Process out/portable/Remindly.exe -ArgumentList @('--smoke-test', $shots, '--data-dir', $data) -WindowStyle Hidden -PassThru
-          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Smoke test timed out' }
-          Get-Content "$shots\smoke-result.txt"
-          if ($p.ExitCode -ne 0 -or -not (Select-String "$shots\smoke-result.txt" -Pattern PASSED -Quiet)) { throw 'UI smoke test failed' }
-      - name: Build installed application
-        run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
-          & $iscc "/DMyAppVersion=$env:BASE_VERSION" "/DMyDisplayVersion=$env:PACKAGE_VERSION" "/DMyPackageName=Remindly_$env:PACKAGE_VERSION" "/DSourceDir=$PWD\out\portable" "/DOutputDir=$PWD\out\installer" installer/Remindly.iss
-          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-      - name: Install, upgrade while running, and uninstall
-        timeout-minutes: 10
-        run: '& ../.github/scripts/test-windows.ps1'
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: windows-payload
-          path: |
-            windows/out/portable/Remindly.exe
-            windows/out/installer/Remindly_${{ needs.plan.outputs.version }}.exe
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7.0.2
-        if: always()
-        with:
-          name: windows-test-reports
-          path: |
-            ${{ runner.temp }}/smoke
-            windows/tests/Remindly.Core.Tests/TestResults
-          if-no-files-found: ignore
-
-  android:
-    needs: plan
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
-      MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-      REMINDLY_STOREPASSWORD: ${{ secrets.REMINDLY_STORE_PASSWORD }}
-      REMINDLY_KEYALIAS: ${{ secrets.REMINDLY_KEY_ALIAS }}
-      REMINDLY_KEYPASSWORD: ${{ secrets.REMINDLY_KEY_PASSWORD }}
-      REMINDLY_STOREFILE: ${{ github.workspace }}/ci-signing.keystore
-      BUILD_VERSION: ${{ needs.plan.outputs.version }}
-      BUILD_CODE: ${{ needs.plan.outputs.code }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Restore private build configuration
-        env:
-          KEYSTORE: ${{ secrets.REMINDLY_KEYSTORE_BASE64 }}
-          GOOGLE_CONFIG: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          for key in KEYSTORE GOOGLE_CONFIG MAPS_API_KEY REMINDLY_STOREPASSWORD REMINDLY_KEYALIAS REMINDLY_KEYPASSWORD; do
-            [ -n "${!key}" ] || { echo "::error::Missing required build secret: $key"; exit 1; }
-          done
-          umask 077
-          printf '%s' "$KEYSTORE" | tr -d ' \r\n' | base64 -d > "$REMINDLY_STOREFILE"
-          if printf '%s' "$GOOGLE_CONFIG" | grep -q '^[[:space:]]*{'; then printf '%s' "$GOOGLE_CONFIG" > app/google-services.json
-          else printf '%s' "$GOOGLE_CONFIG" | base64 -d > app/google-services.json; fi
-          jq -e '.client | length > 0' app/google-services.json > /dev/null
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v5
-        with:
-          gradle-version: '8.7'
-      - name: Android unit tests
-        run: gradle --no-daemon --stacktrace -PremindlyVersion="$BUILD_VERSION" -PremindlyVersionCode="$BUILD_CODE" testDebugUnitTest
-      - name: Build signed APK
-        run: gradle --no-daemon --stacktrace -PremindlyVersion="$BUILD_VERSION" -PremindlyVersionCode="$BUILD_CODE" assembleRelease
-      - name: Verify signature and Maps configuration
-        run: |
-          APK=app/build/outputs/apk/release/app-release.apk
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          CERTS=$("$BT/apksigner" verify --print-certs "$APK")
-          echo "$CERTS" | tr -d ':' | grep -qi "SHA-1 digest $EXPECTED_CERT_SHA1"
-          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -A3 'com.google.android.geo.API_KEY' | grep -q 'AIza'
-          mkdir -p dist/android
-          cp "$APK" "dist/android/Remindly_$BUILD_VERSION.apk"
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: android-payload
-          path: dist/android/*.apk
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7.0.2
-        if: always()
-        with:
-          name: android-test-reports
-          path: app/build/test-results/testDebugUnitTest
-          if-no-files-found: ignore
-      - name: Remove private build configuration
-        if: always()
-        run: rm -f "$REMINDLY_STOREFILE" app/google-services.json
-
-  package:
-    needs: [plan, windows, android]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency:
-      group: remindly-publish-${{ needs.plan.outputs.channel }}
-      cancel-in-progress: false
-    env:
-      VERSION_NAME: ${{ needs.plan.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/download-artifact@v5
-        with:
-          name: release-plan
-          path: incoming/plan
-      - uses: actions/download-artifact@v5
-        with:
-          name: windows-payload
-          path: incoming/windows
-      - uses: actions/download-artifact@v5
-        with:
-          name: android-payload
-          path: incoming/android
-      - name: Package and verify the requested folder layout
-        run: python tools/release.py package --version "$VERSION_NAME" --android "incoming/android/Remindly_$VERSION_NAME.apk" --portable incoming/windows/portable/Remindly.exe --installer "incoming/windows/installer/Remindly_$VERSION_NAME.exe" --out dist
-      - name: Upload the ready-to-extract ZIP (no outer ZIP)
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          path: dist/Remindly_${{ needs.plan.outputs.version }}.zip
-          archive: false
-          if-no-files-found: error
-          retention-days: 30
-      - name: Publish beta or stable release and update the matching feed
-        if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python tools/publish_release.py --plan incoming/plan/release-plan.json --dist dist --apk "incoming/android/Remindly_$VERSION_NAME.apk"
