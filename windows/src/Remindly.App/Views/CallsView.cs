@@ -62,7 +62,7 @@ public sealed class CallsView : DockPanel, IPage
 
         var titleRow = new WrapPanel();
         titleRow.Children.Add(new TextBlock { Text = c.Display, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
-        titleRow.Children.Add(Ui.Tag(c.Source == CallSource.AUTO ? "Auto" : "Manual", Ui.Res("BlueBrush"), Ui.Hex("#E1F0FE")));
+        titleRow.Children.Add(Ui.Tag(c.Source == CallSource.AUTO ? "Auto" : "Manual", Ui.Res("BlueBrush"), Ui.Res("BlueSoftBrush")));
         if (c.RepeatMode != "OFF")
             titleRow.Children.Add(Ui.Tag("↻ " + Recurrence.Label(new Item { RepeatMode = c.RepeatMode, RepeatDays = c.RepeatDays, RepeatN = c.RepeatN, RepeatUnit = c.RepeatUnit, RepeatOrdList = c.RepeatOrdList, RepeatOrd = c.RepeatOrd, RepeatDow = c.RepeatDow }),
                 Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));

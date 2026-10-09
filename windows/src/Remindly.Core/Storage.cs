@@ -219,6 +219,7 @@ public static class DataStore
             SnoozeMinutes = Math.Clamp(s.SnoozeMinutes <= 0 ? 10 : s.SnoozeMinutes, 1, 24 * 60),
             DefaultDueHour = Math.Clamp(s.DefaultDueHour, 0, 23),
             DeviceTag = s.DeviceTag is > 0 and <= 0xFFF ? s.DeviceTag : Ids.NewDeviceTag(),
+            Design = Designs.Normalize(s.Design),
         };
         Ids.InitTag(s.DeviceTag);
 

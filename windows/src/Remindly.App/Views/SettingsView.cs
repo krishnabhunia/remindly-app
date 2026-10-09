@@ -44,6 +44,13 @@ public sealed class SettingsView : ScrollViewer, IPage
         _root.Children.Clear();
         _root.Children.Add(Ui.H1("Settings"));
 
+        // ── Appearance (Windows; macOS when its app exists — never on Android) ──
+        var look = Section("Appearance", "Pick how Remindly looks on this PC. Only this PC changes: your phone keeps its own look and your data stays the same.");
+        var designs = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+        foreach (var d in Designs.All) designs.Children.Add(DesignCard(d, s.Design == d.Code));
+        look.Children.Add(designs);
+        _root.Children.Add(Card(look));
+
         // ── Updates ──
         var v = UpdateService.CurrentDisplayVersion;
         var upd = Section("Updates", $"Remindly for Windows {v} · {InstallInfo.ModeLabel}");
@@ -142,6 +149,34 @@ public sealed class SettingsView : ScrollViewer, IPage
             "Geofenced shop arrivals, call-log detection, maps and cloud sync stay on the phone."));
         about.Children.Add(Ui.Row(Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
         _root.Children.Add(Card(about));
+    }
+
+    /// <summary>One design to choose: colour swatches, name, a line about it, and "In use" on the current one.</summary>
+    private static Button DesignCard(DesignInfo d, bool selected)
+    {
+        var p = Theme.Palettes[d.Code];
+        var swatches = Ui.Row();
+        foreach (var hex in new[] { p.Surface, p.Card, p.Task.Accent, p.Shop.Accent, p.Ink })
+            swatches.Children.Add(new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Theme.Brush(hex), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 5, 0) });
+        var name = Ui.Text($"{d.Letter} · {d.Name}" + (d.Code == Designs.Default ? " (default)" : ""), 15, FontWeights.SemiBold, wrap: false);
+        name.FontFamily = Theme.FontOf(p.Font);
+        var head = Ui.Columns("*,Auto", name, selected ? Ui.Pill("In use", Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush"), 12, FontWeights.Bold) : new Border());
+        var summary = Ui.Sub(d.Summary);
+        summary.Margin = new Thickness(0, 4, 0, 10);
+        var body = Ui.Stack(head, summary, swatches);
+        var b = Ui.Plain(body, () =>
+        {
+            if (selected) return;
+            Application.Current.Dispatcher.BeginInvoke(() => App.Current.Main.ChooseDesign(d.Code));
+        }, selected ? "The design in use" : $"Switch to {d.Name}");
+        b.Padding = new Thickness(14, 12, 14, 12);
+        b.Margin = new Thickness(0, 0, 10, 10);
+        b.BorderThickness = new Thickness(selected ? 2 : 1);
+        b.BorderBrush = selected ? Ui.Res("AccentBrush") : Ui.Res("BorderBrush");
+        b.Background = Ui.Res("CardBrush");
+        b.VerticalContentAlignment = VerticalAlignment.Top;
+        System.Windows.Automation.AutomationProperties.SetName(b, $"Design {d.Letter}, {d.Name}" + (selected ? ", in use" : ""));
+        return b;
     }
 
     private static T Detach<T>(T e) where T : FrameworkElement

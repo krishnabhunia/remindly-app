@@ -31,7 +31,7 @@ public sealed class AlertWindow : Window
         Topmost = true;
         ShowInTaskbar = true;
         ShowActivated = false;
-        FontFamily = new FontFamily("Segoe UI");
+        Theme.Dress(this, ground: false);
 
         var state = AppState.Current;
         int snooze = state.Settings.SnoozeMinutes;
@@ -82,7 +82,7 @@ public sealed class AlertWindow : Window
 
         Content = new Border
         {
-            Background = Brushes.White,
+            Background = Ui.Res("CardBrush"),
             BorderBrush = Ui.Res("AccentBrush"),
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(12),

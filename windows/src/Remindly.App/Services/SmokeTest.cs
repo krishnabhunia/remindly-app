@@ -48,15 +48,48 @@ public static class SmokeTest
         main.Show();
         await Idle();
 
-        foreach (var tab in main.AllTabs)
+        var groceries = state.Lists.First(l => l.Name == "Groceries");
+
+        // Settings → Appearance: every screen in every design (A Fluent, B Day Board, C Command Dark, D Today Hub).
+        Check(state.Settings.Design == Designs.Fluent, "design A is the default");
+        foreach (var design in Designs.All)
         {
-            main.Go(tab);
+            main.ChooseDesign(design.Code);
             await Idle();
-            Capture(main, "tab-" + ((string)tab.Header).ToLowerInvariant());
+            Check(main.Design == design.Code && state.Settings.Design == design.Code, $"design {design.Letter} applied and remembered");
+            var prefix = $"design-{design.Letter.ToLowerInvariant()}-";
+            foreach (var tab in main.AllTabs)
+            {
+                main.Go(tab);
+                await Idle();
+                Check(ReferenceEquals(main.SelectedTab, tab), $"{design.Name}: {tab.Header} opens");
+                Capture(main, prefix + "tab-" + ((string)tab.Header).ToLowerInvariant());
+            }
+            main.Go(main.BuyTab);
+            main.Buy.OpenList(groceries.Id);
+            await Idle();
+            Capture(main, prefix + "buy-list-groceries");
+            main.Buy.BackToLists();
+            if (design.Code == Designs.Command)
+            {
+                foreach (var v in ItemsView.QuickViews)
+                {
+                    ItemsView.CommandView = v.Code;
+                    main.Go(main.TasksTab);
+                    await Idle();
+                    Capture(main, prefix + "view-" + v.Code.ToLowerInvariant());
+                }
+                ItemsView.CommandView = ItemsView.AllView;
+                main.Go(main.TasksTab);
+                Shells.CommandAdd(main, "Added from the command bar");
+                Check(state.LiveItems(Tab.TASKS).Any(i => i.Title == "Added from the command bar"), "command bar adds a task");
+            }
         }
+        main.ChooseDesign(Designs.Fluent);
+        await Idle();
+        Check(main.Design == Designs.Fluent, "back to design A");
 
         // Buy: inside a list, Bought view, Buy Now
-        var groceries = state.Lists.First(l => l.Name == "Groceries");
         main.Go(main.TabFor(Tab.SHOP));
         main.Buy.OpenList(groceries.Id);
         await Idle();
@@ -123,7 +156,14 @@ public static class SmokeTest
         state.UpsertMany(new[]
         {
             Buy("Milk", groceries, "2", "L", "60", Priority.URGENT, "D-Mart") with { ProductId = milkP.Id },
-            Buy("Basmati rice", groceries, "5", "kg", "450", shop: "D-Mart"),
+            Buy("Basmati rice", groceries, "5", "kg", "450", shop: "D-Mart") with
+            {
+                PriceHistory = new()
+                {
+                    new PricePoint { At = now - 20 * 86_400_000L, Shop = "Local kirana", Qty = 5, Unit = "kg", UnitPrice = 96, Price = 480, Paid = 480 },
+                    new PricePoint { At = now - 5 * 86_400_000L, Shop = "D-Mart", Qty = 5, Unit = "kg", UnitPrice = 90, Price = 450, Paid = 450 },
+                },
+            },
             Buy("Eggs", groceries, "12", shop: "Local kirana"),
             Buy("Balloons", party, "30"),
             Buy("Cake", party, price: "900", p: Priority.HIGH),

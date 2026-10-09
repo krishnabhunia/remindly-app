@@ -33,6 +33,20 @@ Both copies keep their data in `%LOCALAPPDATA%\Remindly` (a daily backup is kept
 | 6 | Shop | Products | catalogue with categories and default units; suggestions while adding |
 | 7 | both | Settings | Updates (**Auto update**), start with Windows, sharing format, backup / Android import, Bin |
 
+## Designs (Settings → Appearance)
+
+Four looks for the same app; switching is instant and only changes this PC (the phone keeps its own look).
+
+| SrNo. | Design | What changes |
+|---|---|---|
+| 1 | A · Fluent (default) | Windows 11 left menu; list + details pane |
+| 2 | B · Day Board | top bar + section tabs; Overdue · Today · Tomorrow · Later columns; lists side by side in Buy |
+| 3 | C · Command Dark | dark sidebar with quick views and lists; Ctrl+K command bar; dense rows; Buy grouped by shop |
+| 4 | D · Today Hub | Today and Overview home tiles; rounded cards |
+
+Shortcuts in every design: Ctrl+1…4 menu entries · Ctrl+M Task ⇄ Shop · Ctrl+N new with details (Tasks / Learn).
+Fonts for B, C and D are embedded under the SIL Open Font License 1.1 (`src/Remindly.App/Assets/Fonts/OFL-*.txt`).
+
 Stays on the phone: geofenced arrivals, call-log detection, maps, widgets, cloud sync. Bring the phone's data
 over with Settings → Backup → **Import a backup** (the Android `remindly-data-*.json`).
 
