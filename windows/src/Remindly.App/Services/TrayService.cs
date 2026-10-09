@@ -17,7 +17,7 @@ public sealed class TrayService : IDisposable
         {
             Icon = LoadIcon(),
             Visible = true,
-            Text = $"Remindly {UpdateService.CurrentVersion.ToString(3)}",
+            Text = $"Remindly {UpdateService.CurrentDisplayVersion}",
         };
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("Open Remindly", null, (_, _) => App.Current.ShowMain());
@@ -71,7 +71,7 @@ public sealed class TrayService : IDisposable
 
     public void SetTooltip(long? nextFire)
     {
-        var t = $"Remindly {UpdateService.CurrentVersion.ToString(3)}" + (nextFire is long n ? $"\nNext: {Clock.FormatDayTime(n)}" : "");
+        var t = $"Remindly {UpdateService.CurrentDisplayVersion}" + (nextFire is long n ? $"\nNext: {Clock.FormatDayTime(n)}" : "");
         _icon.Text = t.Length > 63 ? t[..63] : t;
     }
 

@@ -45,14 +45,20 @@ public sealed class SettingsView : ScrollViewer, IPage
         _root.Children.Add(Ui.H1("Settings"));
 
         // ── Updates ──
-        var v = UpdateService.CurrentVersion.ToString(3);
+        var v = UpdateService.CurrentDisplayVersion;
         var upd = Section("Updates", $"Remindly for Windows {v} · {InstallInfo.ModeLabel}");
         upd.Children.Add(Ui.Setting("Auto update", s.UpdateAutoCheck, on =>
         {
             state.UpdateSettingsQuiet(x => x with { UpdateAutoCheck = on });
             RefreshUpdates();
-        }, "Checks GitHub once a day — the first time on the next day — and installs a new version in the background. " +
+        }, "Checks GitHub at startup and daily, and installs a new version in the background. " +
            "Remindly restarts by itself when you are not using it; your data stays."));
+        upd.Children.Add(Ui.Setting("Include beta updates", s.UpdateBeta, on =>
+        {
+            state.UpdateSettingsQuiet(x => x with { UpdateBeta = on });
+            App.Updates?.ResetChannel();
+            RefreshUpdates();
+        }, "Optional previews. Stable releases remain the default."));
         upd.Children.Add(Detach(_updateTimes));
         upd.Children.Add(Ui.Row(Detach(_checkBtn), Detach(_installBtn), Ui.Btn("Releases page", () => InstallInfo.OpenUrl(UpdateLogic.ReleasesUrl))));
         upd.Children.Add(Detach(_updateProgress));
@@ -170,7 +176,7 @@ public sealed class SettingsView : ScrollViewer, IPage
         _updateStatus.Text = u?.Status ?? "";
         _checkBtn.IsEnabled = u is { Busy: false };
         _installBtn.Visibility = u?.Last?.Status == UpdateStatus.UpdateAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _installBtn.Content = u?.Last?.Release is ReleaseInfo r ? $"Install {r.Version.ToString(3)} now" : "Download and install";
+        _installBtn.Content = u?.Last?.Release is ReleaseInfo r ? $"Install {r.DisplayVersion} now" : "Download and install";
         _installBtn.IsEnabled = u is { Busy: false };
         _updateProgress.Visibility = u is { Progress: >= 0 } ? Visibility.Visible : Visibility.Collapsed;
         _updateProgress.Value = Math.Max(0, u?.Progress ?? 0);

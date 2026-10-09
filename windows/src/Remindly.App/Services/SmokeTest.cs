@@ -193,7 +193,7 @@ public static class SmokeTest
 
     private static void Finish()
     {
-        Report.Insert(0, $"Remindly {Core.Updates.UpdateService.CurrentVersion.ToString(3)} smoke test — {(_failures == 0 ? "PASSED" : _failures + " FAILURE(S)")}");
+        Report.Insert(0, $"Remindly {Core.Updates.UpdateService.CurrentDisplayVersion} smoke test — {(_failures == 0 ? "PASSED" : _failures + " FAILURE(S)")}");
         File.WriteAllLines(Path.Combine(_dir, "smoke-result.txt"), Report);
         Application.Current.Shutdown(_failures == 0 ? 0 : 1);
     }

@@ -13,6 +13,12 @@
 #define MyAppPublisher "Krishna Bhunia"
 #define MyAppURL "https://github.com/krishnabhunia/remindly-app"
 #define MyAppExeName "Remindly.exe"
+#ifndef MyDisplayVersion
+  #define MyDisplayVersion MyAppVersion
+#endif
+#ifndef MyPackageName
+  #define MyPackageName "Remindly-Setup-" + MyAppVersion
+#endif
 #ifndef SourceDir
   #define SourceDir "..\out\portable"
 #endif
@@ -23,8 +29,8 @@
 [Setup]
 AppId={{6F3A2C1E-8B4D-4E7A-9C21-5D0B7E3F4A62}
 AppName={#MyAppName}
-AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
+AppVersion={#MyDisplayVersion}
+AppVerName={#MyAppName} {#MyDisplayVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
@@ -39,7 +45,7 @@ DisableDirPage=auto
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog commandline
 OutputDir={#OutputDir}
-OutputBaseFilename=Remindly-Setup-{#MyAppVersion}
+OutputBaseFilename={#MyPackageName}
 SetupIconFile=..\src\Remindly.App\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}

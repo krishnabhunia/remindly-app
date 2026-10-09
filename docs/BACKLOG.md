@@ -4016,3 +4016,8 @@ Also in v1.2: versionCode 3 · installs **in place** over v1.1 (same permanent k
 - Lapse repurchase cycle: completed shop items auto-return to Active after the lapse with an info notification (semantics confirmed by Krishna, 18 Jul 2026).
 - Expiry alarm fixed at 9 AM on expiry day.
 - Settings: alert style, nag chips, move-delay chips, live font-scale slider, default radius, exact-alarm + battery-exemption prompts, PIN set/change, JSON export/import (replace-all with confirm), about sections.
+
+
+## Approved unified releases — 2026-10-08
+
+User approved applying version.md and workflow.md to all platforms. Android and Windows share automatic semantic versions, a single verified package workflow, startup update checks, and an optional beta channel. macOS is explicitly an empty reserved folder. See RELEASE-POLICY.md for the shipped behavior, validation, and persistence checks.

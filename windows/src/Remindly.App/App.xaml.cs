@@ -65,7 +65,7 @@ public partial class App : Application
         if (_opts.Updated)
         {
             UpdateService.CleanDownloads();
-            Tray!.Balloon("Remindly updated", $"You are now on version {UpdateService.CurrentVersion.ToString(3)}.");
+            Tray!.Balloon("Remindly updated", $"You are now on version {UpdateService.CurrentDisplayVersion}.");
         }
 
         Reminders!.Start();

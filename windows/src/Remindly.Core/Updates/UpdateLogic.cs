@@ -5,7 +5,11 @@ namespace Remindly.Core.Updates;
 
 public sealed record ReleaseAsset(string Name, string DownloadUrl, long Size);
 
-public sealed record ReleaseInfo(Version Version, string TagName, string Name, string HtmlUrl, string? Body, bool Prerelease, List<ReleaseAsset> Assets);
+public sealed record ReleaseInfo(Version Version, string TagName, string Name, string HtmlUrl, string? Body, bool Prerelease, List<ReleaseAsset> Assets)
+{
+    public string DisplayVersion => TagName.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? TagName[5..] : TagName.TrimStart('v');
+    public bool IsBeta => Prerelease || DisplayVersion.Contains("-beta.", StringComparison.OrdinalIgnoreCase);
+}
 
 public enum UpdateStatus { UpToDate, UpdateAvailable, Unavailable }
 
@@ -35,8 +39,9 @@ public static class UpdateLogic
     public static string ReleasesApiUrl => $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases?per_page=40";
     public static string ReleasesAtomUrl => ReleasesUrl + ".atom";
 
-    public static bool IsWindowsTag(string? tag) =>
-        !string.IsNullOrWhiteSpace(tag) && tag.Trim().StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase) && ParseVersion(tag) != null;
+    public static bool IsWindowsTag(string? tag) => !string.IsNullOrWhiteSpace(tag) &&
+        (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:\.\d+)*)?$", RegexOptions.IgnoreCase) ||
+         Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-beta\.\d+\.\d+)?$", RegexOptions.IgnoreCase));
 
     /// <summary>"win-v2.11.0" / "2.11" / "v2.11.1-beta" → 2.11.0 / 2.11.0 / 2.11.1 (always three parts).</summary>
     public static Version? ParseVersion(string? tag)
@@ -51,6 +56,19 @@ public static class UpdateLogic
     public static Version Normalize(Version v) => new(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Build));
 
     public static bool IsNewer(Version current, Version candidate) => Normalize(candidate) > Normalize(current);
+
+    public static int BetaBuild(string name) => name.Contains("-beta.", StringComparison.OrdinalIgnoreCase) &&
+        int.TryParse(name.Split('.').Last(), out var n) ? n : 0;
+
+    public static bool IsNewer(string current, ReleaseInfo candidate)
+    {
+        var version = ParseVersion(current) ?? new Version(0, 0, 0);
+        var order = Normalize(candidate.Version).CompareTo(Normalize(version));
+        if (order != 0) return order > 0;
+        bool currentBeta = current.Contains("-beta.", StringComparison.OrdinalIgnoreCase);
+        if (currentBeta && !candidate.IsBeta) return true;
+        return currentBeta && candidate.IsBeta && BetaBuild(candidate.DisplayVersion) > BetaBuild(current);
+    }
 
     public static string ZipName(Version v) => $"Remindly-Windows-{v.ToString(3)}.zip";
 
@@ -90,8 +108,10 @@ public static class UpdateLogic
     }
 
     /// <summary>The newest non-prerelease Windows release, or null.</summary>
-    public static ReleaseInfo? PickLatest(IEnumerable<ReleaseInfo> releases) =>
-        releases.Where(r => !r.Prerelease && IsWindowsTag(r.TagName)).OrderByDescending(r => Normalize(r.Version)).FirstOrDefault();
+    public static ReleaseInfo? PickLatest(IEnumerable<ReleaseInfo> releases, bool includeBeta = false) =>
+        releases.Where(r => (includeBeta || !r.IsBeta) && IsWindowsTag(r.TagName))
+            .OrderByDescending(r => Normalize(r.Version)).ThenBy(r => r.IsBeta)
+            .ThenByDescending(r => BetaBuild(r.DisplayVersion)).FirstOrDefault();
 
     /// <summary>Fallback without the API (rate limit): the releases Atom feed lists the recent tags.</summary>
     public static List<string> ParseAtomTags(string atom)
@@ -111,13 +131,14 @@ public static class UpdateLogic
         if (!IsWindowsTag(tag)) return null;
         var v = ParseVersion(tag)!;
         string Dl(string name) => $"{RepoUrl}/releases/download/{Uri.EscapeDataString(tag)}/{name}";
-        var zip = ZipName(v);
-        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, false,
+        var zip = tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? ZipName(v) : $"Remindly_{tag[1..]}.zip";
+        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, tag.Contains("-beta."),
             new List<ReleaseAsset> { new(zip, Dl(zip), 0), new(zip + ".sha256", Dl(zip + ".sha256"), 0) });
     }
 
     public static ReleaseAsset? PickZip(ReleaseInfo r) =>
-        r.Assets.FirstOrDefault(a => a.Name.Equals(ZipName(r.Version), StringComparison.OrdinalIgnoreCase))
+        r.Assets.FirstOrDefault(a => a.Name.Equals($"Remindly_{r.DisplayVersion}.zip", StringComparison.OrdinalIgnoreCase))
+        ?? r.Assets.FirstOrDefault(a => a.Name.Equals(ZipName(r.Version), StringComparison.OrdinalIgnoreCase))
         ?? r.Assets.FirstOrDefault(a => a.Name.StartsWith("Remindly-Windows", StringComparison.OrdinalIgnoreCase) && a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
 
     public static ReleaseAsset? PickChecksum(ReleaseInfo r, ReleaseAsset asset) =>
@@ -138,6 +159,18 @@ public static class UpdateLogic
     /// </summary>
     public static List<string> ValidateZipLayout(IEnumerable<string> entryNames)
     {
+        var names = entryNames.Select(x => x.Replace('\\', '/')).ToList();
+        if (names.Any(x => x.StartsWith("windows-x64/", StringComparison.Ordinal)))
+        {
+            var layoutProblems = new List<string>();
+            var portableEntry = names.FirstOrDefault(x => Regex.IsMatch(x, @"^portable/Remindly_\d+\.\d+\.\d+(?:-beta\.\d+\.\d+)?\.exe$"));
+            if (portableEntry == null) return new() { "portable/Remindly_<version>.exe is missing" };
+            var file = portableEntry["portable/".Length..];
+            var allowed = new HashSet<string> { portableEntry, $"windows-x64/{file}", $"Android/{file[..^4]}.apk", "macOS/" };
+            if (names.Distinct().Count() != names.Count || !allowed.SetEquals(names))
+                layoutProblems.Add("The unified ZIP must contain matching portable, windows-x64 and Android builds, and an empty macOS/ folder.");
+            return layoutProblems;
+        }
         var problems = new List<string>();
         bool setup = false, portable = false;
         foreach (var raw in entryNames)
@@ -161,6 +194,9 @@ public static class UpdateLogic
     /// <summary>The zip entry an update needs: the Setup for an installed copy, the exe for a portable one.</summary>
     public static string? PickZipEntry(IEnumerable<string> entryNames, bool installedMode)
     {
+        var unified = entryNames.FirstOrDefault(x => Regex.IsMatch(x.Replace('\\', '/'),
+            installedMode ? @"^windows-x64/Remindly_[^/]+\.exe$" : @"^portable/Remindly_[^/]+\.exe$"));
+        if (unified != null) return unified;
         foreach (var raw in entryNames)
         {
             var e = raw.Replace('\\', '/');

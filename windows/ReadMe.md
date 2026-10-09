@@ -1,3 +1,9 @@
+# Unified downloads and updates
+
+Current builds use the shared [release policy](../docs/RELEASE-POLICY.md). Download `Remindly_<version>.zip`: portable mode is under `portable/`, and the Windows installer is under `windows-x64/`. Automatic checks run at startup and daily; beta updates are optional and off by default.
+
+The following legacy setup notes remain useful for local development.
+
 # Remindly for Windows
 
 The Windows 10 / 11 companion of the Remindly Android app — C# / .NET 8 / WPF, Inno Setup.

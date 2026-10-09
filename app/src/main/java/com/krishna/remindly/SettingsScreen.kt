@@ -2637,7 +2637,7 @@ private fun UpdatesSection() {
     var progress by remember { mutableStateOf(-1) }
     var status by remember { mutableStateOf<String?>(null) }
     val installed = Updater.installedName(context)
-    val feed = remember(ui.updateFeedJson) { Updater.cachedFeed() }
+    val feed = remember(ui.updateFeedJson, settings.updateBeta) { Updater.cachedFeed()?.takeIf { updateFeedAllowed(it, settings.updateBeta) } }
     val newer = feed != null && updateAvailable(feed, Updater.installedCode(context))
 
     Text("Installed $installed" + (feed?.let { " · latest ${it.versionName}" } ?: ""), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
@@ -2676,7 +2676,11 @@ private fun UpdatesSection() {
             status = if (f == null) "Couldn't reach the update feed — check your connection." else null
         }
     }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(50.dp)) { Text("Check now") }
-    SettingRowSwitch("Check automatically", "Once a day, quietly; a notification when a new version exists", settings.updateAutoCheck) { on -> SettingsStore.update { it.copy(updateAutoCheck = on) } }
+    SettingRowSwitch("Check automatically", "Checks at startup; a notification when a new version exists", settings.updateAutoCheck) { on -> SettingsStore.update { it.copy(updateAutoCheck = on) } }
+    SettingRowSwitch("Include beta updates", "Optional previews; stable releases remain the default", settings.updateBeta) { on ->
+        SettingsStore.update { it.copy(updateBeta = on) }
+        UiStore.update { it.copy(updateFeedJson = null, updateLastCheck = 0L) }
+    }
     SettingRowSwitch("Download on Wi-Fi only", "Mobile data is never used for the APK", settings.updateWifiOnly) { on -> SettingsStore.update { it.copy(updateWifiOnly = on) } }
     TextButton(onClick = { Updater.openReleasesPage(context) }) { Text("Open the releases page") }
 }
