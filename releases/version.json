@@ -1,9 +1,9 @@
 {
-  "versionCode": 213009999,
-  "versionName": "2.13.0",
-  "apk": "Remindly_2.13.0.apk",
-  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.13.0/Remindly_2.13.0.apk",
-  "sha256": "8fe9d9c1fa34947d832923d85302f5493e5eb4c11c5c3f90a2004375a2fc9ae0",
+  "versionCode": 213019999,
+  "versionName": "2.13.1",
+  "apk": "Remindly_2.13.1.apk",
+  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.13.1/Remindly_2.13.1.apk",
+  "sha256": "76f470d7ae18f4bf3834623184364d441fae1a8832b7c02b8d7b5a96e7abf902",
   "sizeBytes": 16595485,
   "notes": "Task lists first, unified downloads and optional beta updates."
 }
