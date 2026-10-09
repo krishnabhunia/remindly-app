@@ -22,17 +22,17 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Border x:Name="UpdateBanner" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Background="#33FFFFFF" CornerRadius="10" Padding="12,6">
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <RadioButton x:Name="TaskModeButton" GroupName="mode" Content="☑  Task mode" Style="{StaticResource Chip}" Checked="TaskMode_Checked" />
+                        <RadioButton x:Name="ShopModeButton" GroupName="mode" Content="🛒  Shop mode" Style="{StaticResource Chip}" Checked="ShopMode_Checked" />
+                    <Border x:Name="UpdateBanner" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Background="#33FFFFFF" CornerRadius="10" Padding="8,4" Margin="10,0,0,0">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock x:Name="UpdateBannerText" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0" />
                             <Button x:Name="UpdateBannerButton" Content="Update now" Click="UpdateBannerButton_Click" />
                         </StackPanel>
                     </Border>
 
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <RadioButton x:Name="TaskModeButton" GroupName="mode" Content="☑  Task mode" Style="{StaticResource Chip}" Checked="TaskMode_Checked" />
-                        <RadioButton x:Name="ShopModeButton" GroupName="mode" Content="🛒  Shop mode" Style="{StaticResource Chip}" Checked="ShopMode_Checked" />
                     </StackPanel>
                 </Grid>
             </Border>
