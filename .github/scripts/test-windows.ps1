@@ -1,6 +1,12 @@
 $setup = (Get-Item "out/installer/Remindly_$env:PACKAGE_VERSION.exe").FullName
 $dir = "$env:RUNNER_TEMP\RemindlyInstalled"
 $data = "$env:RUNNER_TEMP\installer-data"
+# Isolate installer tests from live GitHub updates. Setup relaunches with the default
+# data directory, so seed both disposable runner profiles before starting either copy.
+foreach ($profile in @($data, (Join-Path $env:LOCALAPPDATA 'Remindly'))) {
+  New-Item -ItemType Directory -Path $profile -Force | Out-Null
+  '{"settings":{"updateAutoCheck":false}}' | Set-Content (Join-Path $profile 'remindly-data.json') -Encoding utf8
+}
 function Running { @(Get-Process -Name Remindly -ErrorAction SilentlyContinue).Count -gt 0 }
 # Waits for THIS process only (Start-Process -Wait would also wait for the Remindly that Setup restarts).
 function RunAndWait([string]$file, [string[]]$argv, [int]$seconds = 300) {
