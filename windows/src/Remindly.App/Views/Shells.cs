@@ -72,15 +72,17 @@ public static class Shells
         var state = AppState.Current;
         if (m.IsShop)
         {
-            long? listId = tab == m.BuyTab && m.Buy.OpenListId is long open && open >= 0 ? open : state.Settings.ShopDefaultListId;
-            var list = listId is long l ? state.List(l) : null;
+            var open = tab == m.BuyTab ? m.Buy.OpenListId : null;
+            // An open list wins (Unsorted included); Buy Now and the Lists screen use the default list.
+            long? listId = open is long o && o != ShopLists.BuyNowListId ? o : state.Settings.ShopDefaultListId;
+            var list = listId is long l && l >= 0 ? state.List(l) : null;
             var item = state.NewItem(Tab.SHOP, text) with { ListId = list?.Id, Group = list?.Name, Personal = list?.Personal == true };
             if (list?.UsualShopId is long sid && state.Shops.FirstOrDefault(s => s.Id == sid) is Shop us) item = item with { ShopId = us.Id, ShopName = us.Name };
             state.Upsert(item);
             m.Snack($"Added to {list?.Name ?? "Unsorted"}", () => state.DeleteForever(item));
             return;
         }
-        if (tab == m.CallsTab) { CallEditor.OpenFor(null); return; }
+        if (tab == m.CallsTab) { CallEditor.New(text); return; }
         ItemsView.AddQuick(tab == m.LearnTab ? Tab.LEARN : Tab.TASKS, text);
     }
 }

@@ -29,7 +29,7 @@ public sealed class BuyView : DockPanel, IPage
     /// <summary>Buy Now for one shop ("No Shop" or null = every shop) — the Today Hub's "Buy now, by store" tile.</summary>
     public void OpenBuyNow(string? shop)
     {
-        _buyNowShop = shop == "No Shop" ? null : shop;
+        _buyNowShop = shop;
         OpenList(ShopLists.BuyNowListId);
     }
 
@@ -403,12 +403,13 @@ public sealed class BuyView : DockPanel, IPage
             var shopBox = new ComboBox { Width = 200, Margin = new Thickness(6, 0, 0, 0) };
             shopBox.Items.Add("All shops");
             foreach (var sname in shops) shopBox.Items.Add(sname);
-            shopBox.SelectedItem = _buyNowShop != null && shops.Contains(_buyNowShop) ? _buyNowShop : "All shops";
+            if (items.Any(i => string.IsNullOrWhiteSpace(ShopOf(i, shopNames)))) shopBox.Items.Add(NoShop);
+            shopBox.SelectedItem = _buyNowShop != null && shopBox.Items.Contains(_buyNowShop) ? _buyNowShop : "All shops";
             shopBox.SelectionChanged += (_, _) => { _buyNowShop = shopBox.SelectedItem as string == "All shops" ? null : shopBox.SelectedItem as string; Refresh(); };
             controls.Children.Add(shopBox);
             if (_buyNowShop != null)
             {
-                var here = items.Where(i => string.Equals(ShopOf(i, shopNames), _buyNowShop, StringComparison.OrdinalIgnoreCase)).ToList();
+                var here = items.Where(i => AtShop(i, shopNames, _buyNowShop)).ToList();
                 controls.Children.Add(new Border { Width = 12 });
                 controls.Children.Add(Ui.Btn($"✓ Bought everything here ({here.Count})", () =>
                 {
@@ -428,7 +429,7 @@ public sealed class BuyView : DockPanel, IPage
         // the items
         var body = new StackPanel();
         var shown = buyNow
-            ? (_buyNowShop == null ? items : items.Where(i => string.Equals(ShopOf(i, shopNames), _buyNowShop, StringComparison.OrdinalIgnoreCase)).ToList())
+            ? (_buyNowShop == null ? items : items.Where(i => AtShop(i, shopNames, _buyNowShop)).ToList())
             : items.Where(i => i.Done == _doneView).ToList();
         if (shown.Count == 0)
             body.Children.Add(Ui.EmptyState(_doneView ? "Nothing bought yet" : buyNow ? "Nothing to buy" : "This list is empty",
@@ -445,6 +446,13 @@ public sealed class BuyView : DockPanel, IPage
         root.Children.Add(Ui.Scroll(body));
         return root;
     }
+
+    /// <summary>The Buy Now filter for items with no shop (a distinct value: null means every shop).</summary>
+    private const string NoShop = "No Shop";
+
+    private static bool AtShop(Item i, Dictionary<long, string> shopNames, string? shop) => shop == NoShop
+        ? string.IsNullOrWhiteSpace(ShopOf(i, shopNames))
+        : string.Equals(ShopOf(i, shopNames), shop, StringComparison.OrdinalIgnoreCase);
 
     private static string? ShopOf(Item i, Dictionary<long, string> shopNames) =>
         (i.ShopId is long sid && shopNames.TryGetValue(sid, out var sn) ? sn : i.ShopName)?.Trim();

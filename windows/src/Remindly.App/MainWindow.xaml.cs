@@ -241,15 +241,22 @@ public partial class MainWindow : Window
         if (e.OriginalSource == NavTabs) ShowSelected();
     }
 
-    /// <summary>Ctrl+K command bar (Command Dark) · Ctrl+1…4 menu entries · Ctrl+M switches Task / Shop mode.</summary>
+    /// <summary>Ctrl+K command bar (Command Dark) · Ctrl+1…4 menu entries (then Settings) · Ctrl+M Task / Shop · Ctrl+N new task / Learn item.</summary>
     private void OnShortcut(object sender, KeyEventArgs e)
     {
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         if (e.Key == Key.K && _shell?.FocusCommand() == true) { e.Handled = true; return; }
         if (e.Key == Key.M) { ToggleMode(); e.Handled = true; return; }
+        if (e.Key == Key.N && (SelectedTab == TasksTab || SelectedTab == LearnTab || SelectedTab == TodayTab))
+        {
+            ItemEditor.New(SelectedTab == LearnTab ? Tab.LEARN : Tab.TASKS);
+            e.Handled = true;
+            return;
+        }
         int n = e.Key switch { Key.D1 => 0, Key.D2 => 1, Key.D3 => 2, Key.D4 => 3, _ => -1 };
         var entries = NavEntries();
         if (n >= 0 && n < entries.Count) { Go(entries[n].Tab); e.Handled = true; }
+        else if (n == entries.Count) { Go(SettingsTab); e.Handled = true; } // three sections: Ctrl+4 is Settings
     }
 
     // ───────────────────────── entry points (tray, alerts) ─────────────────────────
@@ -313,9 +320,10 @@ public partial class MainWindow : Window
         if (_updateButton != null && u?.Last is { Status: UpdateStatus.UpdateAvailable, Release: ReleaseInfo r })
         {
             UpdateSlot.Visibility = Visibility.Visible;
+            // The label stays "Update to vx.y.z" (AGENTS.md); download progress goes in the tooltip.
             _updateButton.Content = Ui.Row(Ui.Glyph(Glyphs.Download, 14, _updateButton.Foreground),
-                Ui.Text(u.Progress >= 0 ? $"  Downloading {r.DisplayVersion}… {u.Progress}%" : $"  Update to v{r.DisplayVersion}", 13.5, FontWeights.SemiBold, _updateButton.Foreground, wrap: false));
-            _updateButton.ToolTip = $"Remindly {r.DisplayVersion} is available";
+                Ui.Text($"  Update to v{r.DisplayVersion}", 13.5, FontWeights.SemiBold, _updateButton.Foreground, wrap: false));
+            _updateButton.ToolTip = u.Progress >= 0 ? $"Downloading Remindly {r.DisplayVersion}… {u.Progress}%" : $"Remindly {r.DisplayVersion} is available";
             _updateButton.IsEnabled = !u.Busy;
         }
         else UpdateSlot.Visibility = Visibility.Collapsed;

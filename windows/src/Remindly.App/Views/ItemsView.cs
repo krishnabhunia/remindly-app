@@ -341,8 +341,8 @@ public sealed class ItemsView : DockPanel, IPage
             {
                 long? due = c.Key switch
                 {
-                    DesktopViews.Today => Math.Min(Clock.StartOfNextDay(now) - 60_000L, (now / 3_600_000L + 1) * 3_600_000L),
-                    DesktopViews.Tomorrow => Clock.StartOfNextDay(now) + state.Settings.DefaultDueHour * 3_600_000L,
+                    DesktopViews.Today => NextLocalHour(now),
+                    DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddHours(state.Settings.DefaultDueHour)),
                     _ => null,
                 };
                 footer = Ui.Btn("+ Add " + (c.Key == DesktopViews.Later ? "for later" : "to " + c.Label.ToLowerInvariant()), () => ItemEditor.New(_tab, dueAt: due));
@@ -365,6 +365,14 @@ public sealed class ItemsView : DockPanel, IPage
         var sv = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
         sv.SizeChanged += (_, _) => grid.Width = Math.Max(4 * 250, sv.ViewportWidth > 0 ? sv.ViewportWidth : sv.ActualWidth);
         return sv;
+    }
+
+    /// <summary>The next whole local hour today (23:59 late in the evening) — built in local time, so DST and half-hour zones are right.</summary>
+    private static long NextLocalHour(long now)
+    {
+        var local = Clock.ToLocal(now);
+        var next = local.Date.AddHours(local.Hour + 1);
+        return Clock.FromLocal(next.Date == local.Date ? next : local.Date.AddHours(23).AddMinutes(59));
     }
 
     /// <summary>Four equal columns that fill the width they are given.</summary>
