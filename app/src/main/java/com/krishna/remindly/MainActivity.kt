@@ -469,6 +469,19 @@ fun MainScaffold(initialTab: Int) {
     ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            val pendingUpdate = remember(ui.updateFeedJson, settings.updateBeta) { Updater.pending(context) }
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Remindly · v${Updater.installedName(context)}", style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f), color = InkSubtle)
+                if (pendingUpdate != null) {
+                    androidx.compose.material3.TextButton(onClick = {
+                        if (shopMode) requestShopTab(3) else requestTab(4)
+                    }) { Text("Update to v${pendingUpdate.versionName}", fontWeight = FontWeight.Bold) }
+                }
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = SurfaceCard,

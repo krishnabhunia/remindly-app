@@ -163,6 +163,8 @@ public partial class MainWindow : Window
         {
             UpdateBanner.Visibility = Visibility.Visible;
             UpdateBannerText.Text = u.Progress >= 0 ? $"Downloading Remindly {r.DisplayVersion}… {u.Progress}%" : $"Remindly {r.DisplayVersion} is available";
+            UpdateBannerButton.Content = $"Update to v{r.DisplayVersion}";
+            UpdateBannerText.Visibility = u.Progress >= 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateBannerButton.IsEnabled = !u.Busy;
         }
         else UpdateBanner.Visibility = Visibility.Collapsed;
