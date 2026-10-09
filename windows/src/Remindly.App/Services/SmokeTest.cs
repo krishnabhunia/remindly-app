@@ -105,7 +105,10 @@ public static class SmokeTest
         Check(TaskLists.IdOf(state.LiveItems(Tab.TASKS).First(i => i.Title == "Desktop Pro test task"),state.Settings.TaskLists) == TaskLists.UnsortedId, "delete task list keeps task in Unsorted");
         state.Restore(taskSnapshot);
         Check(state.Settings.TaskLists.Any(l => l.Id == work.Id && l.DeletedAt == null), "undo restores task list");
-        state.UpdateSettings(s => s with { DesktopCompactRows = true, TasksListsFirst = 1 });
+        state.UpdateSettings(s => s with { TasksListsFirst = 0 }); await Idle();
+        Check(Descendants<Button>(taskListsView).Any(b => (b.Content as string) == "+ New"), "all-tasks override takes effect on cached Tasks page");
+        state.UpdateSettings(s => s with { DesktopCompactRows = true, TasksListsFirst = 1 }); await Idle();
+        Check(Descendants<Button>(taskListsView).Any(b => (b.Content as string) == "+ New list"), "lists-first override takes effect on cached Tasks page");
         var reloaded = DataStore.Load();
         Check(reloaded.Settings.DesktopCompactRows && reloaded.Settings.TasksListsFirst == 1 && reloaded.Settings.TaskLists.Any(l => l.Id == work.Id), "saved preferences and lists survive reopening data");
         Check(reloaded.Items.Any(i => i.Title == "Desktop Pro test task" && i.ListId == work.Id), "task and selected list survive reopening data");

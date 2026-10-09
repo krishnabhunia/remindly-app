@@ -22,8 +22,8 @@ Task lists use Android's `taskLists` record schema, with numeric `tasksListsFirs
 
 - 83 Windows unit tests passed, including five new list/import/persistence regressions.
 - Five release-policy/ZIP tests passed locally.
-- Each new regression was run with its corresponding missing behavior: deleted-list filtering removed, task-list import removed, newest-wins reversed, opening-view rule disabled and group migration removed. All five negative controls failed as expected; restored implementation passed.
-- Actual WPF smoke tests open all nine workspace pages, all nine settings categories, task/list/learning/shopping/call/catalog editors and reminder alerts. They click quick-add and list create/rename/delete controls, verify Undo, save/reload and capture minimum-width layout. A second process verifies persisted preferences and task-list assignment before reseeding.
+- Each new regression was run with its corresponding missing behavior: deleted-list filtering removed, task-list import removed, newest-wins reversed, opening-view rule disabled and group migration removed. All five negative controls failed as expected; restored implementation passed. Two additional WPF negative controls removed Active/Done view retention and immediate opening-preference refresh; both failed their visible-state assertions as expected.
+- Actual WPF smoke tests open all nine workspace pages, all nine settings categories, task/list/learning/shopping/call/catalog editors and reminder alerts. They click quick-add and list create/rename/delete controls, verify Undo, save/reload and capture minimum-width layout. A second process verifies persisted preferences and task-list assignment before any sample-data changes.
 - Screenshots inspected for Overview, Tasks and Settings. User data is untouched: local checks use an isolated data directory.
 
 ## Class sweep
@@ -35,7 +35,7 @@ Task lists use Android's `taskLists` record schema, with numeric `tasksListsFirs
 | Shopping `ListId` consumers (`ShopLists`, `BuyView`, `ListDialogs`, Shop editor and reminders) | Safe: separate Shop list rules; existing smoke flows retained |
 | Settings startup/tray/reminders/sharing/backup/Bin/update actions | Safe: same actions moved into category pages |
 | Update banner / startup coordinator / beta policy | Safe: eligibility and version logic retained; no-update banner assertion retained |
-| Cached task list item view | Fixed: preserve search and Active / Done view during mutations |
+| Cached task list item view | Fixed: preserve search and Active / Done view during mutations; apply changed opening preferences immediately and route removed selected lists to Unsorted |
 
 ## Practical device checklist before merge
 

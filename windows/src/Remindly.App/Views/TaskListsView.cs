@@ -7,6 +7,7 @@ public sealed class TaskListsView : DockPanel, IPage
 {
     private long? _selected;
     private bool _forceLists;
+    private bool? _previousListsFirst;
     private ItemsView? _items;
     private long? _itemsScope;
     private readonly TextBox _search = Ui.Input(placeholder: "Search task lists", width: 220);
@@ -18,6 +19,10 @@ public sealed class TaskListsView : DockPanel, IPage
         Children.Clear();
         var state = AppState.Current;
         var lists = state.Settings.TaskLists.Where(l => l.DeletedAt == null).ToList();
+        var listsFirst = TaskLists.ListsFirst(state.Settings);
+        if (_previousListsFirst != null && _previousListsFirst != listsFirst) { _forceLists = false; _selected = null; }
+        _previousListsFirst = listsFirst;
+        if (_selected is > 0 && lists.All(l => l.Id != _selected)) _selected = TaskLists.UnsortedId;
         if (_selected != null || (!TaskLists.ListsFirst(state.Settings) && !_forceLists))
         {
             var back = Ui.Row(Ui.Btn("← Task lists", BackToLists), Ui.Sub(_selected is long id ? lists.FirstOrDefault(l => l.Id == id)?.Name ?? "Unsorted" : "All tasks"));
