@@ -56,3 +56,5 @@ Stable publishing updates `VERSION` and `releases/version.json` only after the v
 | 5 | A published version already exists | A rerun retains that version; new changes are versioned automatically. |
 
 `publish-release.yml` is a fallback kept for an APK built locally and committed under `releases/`. It does nothing when the APK is not committed.
+
+The build runs on one Windows runner with Android tooling. Its Artifacts box contains only the final versioned ZIP. Intermediate payloads and test reports stay local to the runner; validation output remains in job logs. Beta runs are serialized to keep their update manifest in order.

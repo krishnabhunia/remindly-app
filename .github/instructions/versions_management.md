@@ -9,7 +9,7 @@ Version must be automatically managed in the GitHub as per the requirement.
 
 Software or App must be capable to check the update once its restarted.
 
-Also the Software App can also pull the new update from settings and install silently.
+Also the Software App can also pull the new update from settings and install background silently.
 
 Beta version update can be kept as optional.
 
