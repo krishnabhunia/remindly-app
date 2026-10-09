@@ -118,6 +118,7 @@ public partial class MainWindow : Window
         _shell = Shells.Create(Theme.Design, this);
         ShellHost.Content = _shell.Root;
         _shell.Sync();
+        RefreshUpdateBanner();
     }
 
     private static void Detach(FrameworkElement e)

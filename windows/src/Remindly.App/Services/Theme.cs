@@ -58,7 +58,7 @@ public static class Theme
         // D · Today Hub — rounded tiles, Plus Jakarta Sans, violet / green, a dark hero tile.
         [Designs.Hub] = new(false,
             "#F1F2F6", "#F1F2F6", "#FFFFFF", "#E3E4EA", "#17151F", "#5E5A6B", "#8E8A9B",
-            "#FFFFFF", "#17151F", "#FFFFFF", "#0F17151F", "#FFFFFF",
+            "#FFFFFF", "#EFEFF3", "#FFFFFF", "#0F17151F", "#FFFFFF",
             new("#6941C6", "#EEE8FB", "#5B34B5"), new("#0B7A55", "#DDF1E8", "#0B6447"),
             "#9F1F17", "#FDEDEC", "#15803D", "#E6F4EC", "#7A5200", "#FFF3D6", "#2563EB", "#E3EAFC",
             "#17151F", "#FFFFFF", "#CFCBDD",

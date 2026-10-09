@@ -524,7 +524,7 @@ internal sealed class HubShell : IShell
             var b = Ui.Plain(Ui.Text(e.Label, 14, sel ? FontWeights.Bold : FontWeights.SemiBold, sel ? Ui.Res("InverseInkBrush") : Ui.Res("InkSubtleBrush"), wrap: false), () => _m.Go(tab), height: 36);
             b.Padding = new Thickness(16, 0, 16, 0);
             b.Margin = new Thickness(0, 0, 2, 0);
-            if (sel) b.Background = Ui.Res("NavSelectedBrush");
+            if (sel) b.Background = Ui.Res("InverseBrush");
             _tabs.Children.Add(Shells.Labelled(b, e.Label));
         }
         _settings.Content = Shells.IconSquare(Glyphs.Settings, "Settings", _m.SelectedTab == _m.SettingsTab, () => _m.Go(_m.SettingsTab), 44);

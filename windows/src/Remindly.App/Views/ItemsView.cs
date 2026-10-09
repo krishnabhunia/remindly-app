@@ -148,6 +148,8 @@ public sealed class ItemsView : DockPanel, IPage
                 _doneView ? "Ticked items land here. Recurring ones come back on their next day." : "Type above and press Enter, or use + New for dates, repeats and priority."));
             return;
         }
+        var old = FindScroll(_body.Content as DependencyObject);
+        double v = old?.VerticalOffset ?? 0, h = old?.HorizontalOffset ?? 0;
         _body.Content = _design switch
         {
             Designs.Board when !_doneView => BoardBody(shown, now),
@@ -156,6 +158,21 @@ public sealed class ItemsView : DockPanel, IPage
             Designs.Fluent => FluentBody(shown, now),
             _ => ListBody(shown, now),
         };
+        // Every refresh rebuilds the body; keep the reader where they were (runs before the next mouse input).
+        if (v > 0 || h > 0)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                if (FindScroll(_body.Content as DependencyObject) is ScrollViewer sv) { sv.ScrollToVerticalOffset(v); sv.ScrollToHorizontalOffset(h); }
+            });
+    }
+
+    private static ScrollViewer? FindScroll(DependencyObject? d)
+    {
+        if (d == null) return null;
+        if (d is ScrollViewer sv) return sv;
+        foreach (var child in LogicalTreeHelper.GetChildren(d).OfType<DependencyObject>())
+            if (FindScroll(child) is ScrollViewer found) return found;
+        return null;
     }
 
     private ScrollViewer ListBody(List<Item> shown, long now)

@@ -34,7 +34,9 @@ public sealed class SettingsView : ScrollViewer, IPage
             await App.Updates.DownloadAndInstallAsync(background: false);
             RefreshUpdates();
         });
-        if (App.Updates != null) App.Updates.Changed += () => Dispatcher.BeginInvoke(RefreshUpdates);
+        // Only while shown: a design switch replaces this page, and the old one must not keep listening.
+        Loaded += (_, _) => { if (App.Updates != null) App.Updates.Changed += OnUpdatesChanged; };
+        Unloaded += (_, _) => { if (App.Updates != null) App.Updates.Changed -= OnUpdatesChanged; };
     }
 
     public void Refresh()
@@ -200,6 +202,8 @@ public sealed class SettingsView : ScrollViewer, IPage
         c.Margin = new Thickness(0, 12, 0, 0);
         return c;
     }
+
+    private void OnUpdatesChanged() => Dispatcher.BeginInvoke(RefreshUpdates);
 
     private void RefreshUpdates()
     {
