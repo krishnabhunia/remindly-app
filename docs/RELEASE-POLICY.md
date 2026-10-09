@@ -10,7 +10,7 @@ One workflow, **Remindly build and release** (`.github/workflows/remindly.yml`),
 
 PRs build `x.y.z-beta.<PR number>.<workflow run>` and publish a verified prerelease after every gate passes. Merging to main builds and publishes stable `x.y.z`. Stable retries reuse the same release and its recorded asset hashes; they do not mint a new version or replace already-published binaries. On stable publication, automation updates `VERSION` and the Android update feed after the downloadable assets exist.
 
-Android versionCodes encode the three version components and build channel. The stable build is newer than every beta of the same version. Minor/patch components must be below 100; beta build slots 1–9998 are available per version, with 9999 reserved for stable. The planner rejects Android integer overflow instead of building an APK that cannot be upgraded.
+Android versionCodes encode the three version components and build channel. The stable build is newer than every beta of the same version. Minor/patch components must be below 100; beta build slots 1â€“9998 are available per version, with 9999 reserved for stable. The planner rejects Android integer overflow instead of building an APK that cannot be upgraded.
 
 ## Downloads
 
@@ -42,8 +42,8 @@ Update-channel controls are inherently global to an installation, rather than pe
 
 Automated gates cover semantic bumps, PR/stable ordering, exact archive layout (including empty macOS), Android beta exclusion, Windows channel selection/promotion and legacy/unified ZIP extraction. The existing Android and desktop suites, Windows UI smoke test, and installed-app upgrade test remain required.
 
-Device pass: change channel/automatic checking → verify → close/reopen → verify → reboot → verify. Check a stable update, opt into a beta, turn beta off during a check, verify no beta is offered/queued, and verify a beta promotes to stable at the same version. Windows: test both installed and portable copies while an editor/reminder is open. Android: confirm the installer keeps existing tasks, lists, reminders and data. Also verify that one ZIP extraction gives exactly the displayed folders and that macOS is empty.
+Device pass: change channel/automatic checking â†’ verify â†’ close/reopen â†’ verify â†’ reboot â†’ verify. Check a stable update, opt into a beta, turn beta off during a check, verify no beta is offered/queued, and verify a beta promotes to stable at the same version. Windows: test both installed and portable copies while an editor/reminder is open. Android: confirm the installer keeps existing tasks, lists, reminders and data. Also verify that one ZIP extraction gives exactly the displayed folders and that macOS is empty.
 
-## Adopted app and chat policy � 9 October 2026
+## Adopted app and chat policy — 9 October 2026
 
-The three original supplied instruction documents are saved under `.github/instructions/`, with `AGENTS.md` applying them to future work in this repository. Direct user instructions override those documents; macOS remains empty. Both main app windows show their installed version. A top-right `Update to v<version>` action is visible only for a newer eligible update found from GitHub. Android opens its Settings update flow using the existing unsaved-settings guards; Windows starts the verified download/install flow.
+The three original supplied instruction documents are saved under `.github/instructions/`, with `AGENTS.md` applying them to future work in this repository. Direct user instructions override those documents; macOS remains empty. The desktop main app window shows its installed version. A top-right `Update to v<version>` action is visible only for a newer eligible update found from GitHub. Windows starts the verified download/install flow. The updated software app.md explicitly excludes Android APKs from these header rules; Android retains its existing UI.
