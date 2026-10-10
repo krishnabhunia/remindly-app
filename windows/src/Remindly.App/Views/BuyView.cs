@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Remindly.App.Services;
 using Remindly.Core;
 
@@ -24,6 +25,16 @@ public sealed class BuyView : DockPanel, IPage
     {
         Children.Add(_body);
     }
+
+    /// <summary>Buy Now for one shop ("No Shop" or null = every shop) — the Today Hub's "Buy now, by store" tile.</summary>
+    public void OpenBuyNow(string? shop)
+    {
+        _buyNowShop = shop;
+        OpenList(ShopLists.BuyNowListId);
+    }
+
+    /// <summary>The list open inside Buy (null = the Lists screen).</summary>
+    public long? OpenListId => _open;
 
     public void OpenList(long id)
     {
@@ -72,6 +83,11 @@ public sealed class BuyView : DockPanel, IPage
         SetDock(bar, Dock.Top);
         root.Children.Add(bar);
 
+        if (sorted.Count > 0 || unsorted.Count > 0)
+        {
+            if (Theme.Design == Designs.Board) { root.Children.Add(BoardLists(state, sorted, stats, unsorted, shopNames, now)); return root; }
+            if (Theme.Design == Designs.Command) { root.Children.Add(ShopTable(state)); return root; }
+        }
         var wrap = new WrapPanel();
         if (sorted.Count == 0 && unsorted.Count == 0)
         {
@@ -144,6 +160,130 @@ public sealed class BuyView : DockPanel, IPage
                 : LogicalTreeHelper.GetParent(d);
         }
         return null;
+    }
+
+    // ═════════════════════════ B · Day Board: lists side by side ═════════════════════════
+
+    private UIElement BoardLists(AppState state, List<ShopList> lists, Dictionary<long, ListStats> stats, List<Item> unsorted, Dictionary<long, string> shopNames, long now)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+        foreach (var l in lists) row.Children.Add(ListColumn(state, l, state.ItemsIn(l.Id), stats[l.Id], now));
+        if (unsorted.Count > 0)
+            row.Children.Add(ListColumn(state, new ShopList { Id = ShopLists.UnsortedListId, Name = "Unsorted", Icon = "🗂" }, unsorted, ShopLists.Stats(unsorted, shopNames), now));
+        return new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = row };
+    }
+
+    private Border ListColumn(AppState state, ShopList l, List<Item> items, ListStats st, long now)
+    {
+        bool real = l.Id >= 0;
+        var p = new StackPanel();
+        var head = Ui.Columns("*,Auto", Ui.Text($"{l.Icon ?? "🛒"}  {l.Name}", 16, FontWeights.ExtraBold, wrap: false), new Border());
+        if (l.ShoppingDay is long day)
+        {
+            bool today = Clock.LocalDate(day) == Clock.LocalDate(now);
+            var pill = Ui.Pill(today ? "Today" : Clock.ToLocal(day).ToString("ddd d", System.Globalization.CultureInfo.InvariantCulture),
+                today ? Ui.Res("AccentInkBrush") : Ui.Res("InkSubtleBrush"), today ? Ui.Res("AccentSoftBrush") : Ui.Res("NavSelectedBrush"), 12, FontWeights.Bold);
+            Grid.SetColumn(pill, 1);
+            head.Children.Add(pill);
+        }
+        p.Children.Add(head);
+        int total = st.ToBuy + st.Done;
+        p.Children.Add(new ProgressBar
+        {
+            Maximum = Math.Max(1, total), Value = st.Done, Height = 6, Margin = new Thickness(0, 10, 0, 6),
+            Foreground = Ui.Res("AccentBrush"), Background = Ui.Res("NavSelectedBrush"), BorderThickness = new Thickness(0),
+        });
+        p.Children.Add(Ui.Sub(ShopLists.CardSubtitle(st, now)));
+        var open = items.Where(i => !i.Done).ToList();
+        foreach (var i in open.Take(8))
+        {
+            var item = i;
+            var check = Ui.Check(false, on => { if (on) ItemsView.Toggle(item, true); }, "Bought");
+            var sub = string.Join(" · ", new[] { ShopLists.QtySegment(i), i.ShopName }.Where(x => !string.IsNullOrWhiteSpace(x)));
+            var mid = Ui.Stack(Ui.Text(i.Title, 14, FontWeights.Bold));
+            if (sub.Length > 0) mid.Children.Add(Ui.Sub(sub));
+            var price = Ui.Text(ShopLists.EstPriceOf(i) is double v ? Ui.Rupees(v) : "", 13, FontWeights.Bold, wrap: false);
+            var r = new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = Ui.Columns("Auto,*,Auto", check, mid, price), Background = Brushes.Transparent };
+            r.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(item); e.Handled = true; } };
+            p.Children.Add(r);
+        }
+        if (open.Count > 8) p.Children.Add(Ui.Sub($"+{open.Count - 8} more"));
+        if (open.Count == 0) { var e = Ui.Sub("Everything is bought."); e.Margin = new Thickness(0, 10, 0, 0); p.Children.Add(e); }
+
+        var actions = Ui.Row();
+        if (real) actions.Children.Add(Ui.IconBtn("💬", () => ShareWindow.WhatsApp(l.Id), "Send to WhatsApp"));
+        actions.Children.Add(Ui.Btn("Open", () => OpenList(l.Id)));
+        var foot = Ui.Columns("*,Auto", Ui.Text(ShopLists.EstLabel(st.EstTotal) ?? "", 15, FontWeights.ExtraBold, wrap: false), actions);
+        foot.Margin = new Thickness(0, 10, 0, 0);
+        p.Children.Add(new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 4, 0, 0), Child = foot });
+
+        var col = new Border
+        {
+            Width = 290, Background = Ui.Res("CardBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14), Padding = new Thickness(14), Margin = new Thickness(0, 0, 16, 8), VerticalAlignment = VerticalAlignment.Top, Child = p,
+        };
+        if (real) col.ContextMenu = ListContextMenu(state, l);
+        return col;
+    }
+
+    // ═════════════════════════ C · Command Dark: everything to buy, by shop ═════════════════════════
+
+    private const string ShopCols = "36,*,110,180,100";
+
+    private UIElement ShopTable(AppState state)
+    {
+        var open = state.LiveItems(Tab.SHOP).Where(i => !i.Done).ToList();
+        var groups = ShopLists.ShopGroupsOf(open);
+        double est = open.Sum(i => ShopLists.EstPriceOf(i) ?? 0);
+        var panel = new DockPanel();
+        var stats = Ui.Row(Stat("ITEMS", open.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)), Stat("SHOPS", groups.Count(g => g.Name != "No Shop").ToString(System.Globalization.CultureInfo.InvariantCulture)), Stat("ESTIMATE", Ui.Rupees(est)));
+        stats.Margin = new Thickness(0, 0, 0, 12);
+        SetDock(stats, Dock.Top);
+        panel.Children.Add(stats);
+        if (open.Count == 0) { panel.Children.Add(Ui.EmptyState("Nothing to buy", "Add items from the command bar (Ctrl+K) or open a list on the left.")); return panel; }
+
+        var rows = new StackPanel();
+        var head = Ui.Columns(ShopCols, new Border(), Cap("Item"), Cap("Qty"), Cap("List"), Cap("Price"));
+        head.Margin = new Thickness(12, 0, 12, 0);
+        head.Height = 34;
+        rows.Children.Add(new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = head });
+        var lists = state.Settings.ShopLists;
+        foreach (var (name, gitems) in groups)
+        {
+            double sub = gitems.Sum(i => ShopLists.EstPriceOf(i) ?? 0);
+            var cap = Ui.Columns("*,Auto", Ui.Text(name, 12.5, FontWeights.SemiBold, Ui.Res("AccentBrush"), wrap: false),
+                Ui.Mono($"{gitems.Count} item(s){(sub > 0 ? " · " + Ui.Rupees(sub) : "")}", 12, Ui.Res("InkSubtleBrush")));
+            cap.Margin = new Thickness(48, 12, 12, 6);
+            rows.Children.Add(cap);
+            foreach (var i in gitems)
+            {
+                var item = i;
+                var check = Ui.Check(false, on => { if (on) ItemsView.Toggle(item, true); }, "Bought");
+                check.LayoutTransform = new System.Windows.Media.ScaleTransform(1.1, 1.1);
+                var listName = ShopLists.ListIdOf(i, lists) is long lid ? state.List(lid)?.Name ?? "Unsorted" : "Unsorted";
+                var price = Ui.Mono(ShopLists.EstPriceOf(i) is double v ? Ui.Rupees(v) : "—", 13, Ui.Res("InkBrush"));
+                price.HorizontalAlignment = HorizontalAlignment.Right;
+                var g = Ui.Columns(ShopCols, check, Ui.Text(i.Title, 14, FontWeights.Medium, wrap: false), Ui.Mono(ShopLists.QtySegment(i) ?? "—", 12.5),
+                    Ui.Text(listName, 13, color: Ui.Res("InkSubtleBrush"), wrap: false), price);
+                g.Margin = new Thickness(12, 0, 12, 0);
+                var row = new Border { MinHeight = 40, Background = Brushes.Transparent, BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = g };
+                row.MouseEnter += (_, _) => row.Background = Ui.Res("HoverBrush");
+                row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+                row.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(item); e.Handled = true; } };
+                rows.Children.Add(row);
+            }
+        }
+        var box = new Border { Background = Ui.Res("NavBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 0, 0, 6), Child = rows, VerticalAlignment = VerticalAlignment.Top };
+        panel.Children.Add(new ScrollViewer { Content = box, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 6, 0) });
+        return panel;
+
+        static TextBlock Cap(string t) => Ui.Text(t.ToUpperInvariant(), 11.5, FontWeights.SemiBold, Ui.Res("InkHintBrush"), wrap: false);
+        static StackPanel Stat(string label, string value)
+        {
+            var s = Ui.Stack(Ui.Mono(label, 11.5, Ui.Res("InkHintBrush")), Ui.Mono(value, 18, Ui.Res("InkBrush")));
+            s.Margin = new Thickness(0, 0, 28, 0);
+            return s;
+        }
     }
 
     // ═════════════════════════ list menu ═════════════════════════
@@ -263,12 +403,13 @@ public sealed class BuyView : DockPanel, IPage
             var shopBox = new ComboBox { Width = 200, Margin = new Thickness(6, 0, 0, 0) };
             shopBox.Items.Add("All shops");
             foreach (var sname in shops) shopBox.Items.Add(sname);
-            shopBox.SelectedItem = _buyNowShop != null && shops.Contains(_buyNowShop) ? _buyNowShop : "All shops";
+            if (items.Any(i => string.IsNullOrWhiteSpace(ShopOf(i, shopNames)))) shopBox.Items.Add(NoShop);
+            shopBox.SelectedItem = _buyNowShop != null && shopBox.Items.Contains(_buyNowShop) ? _buyNowShop : "All shops";
             shopBox.SelectionChanged += (_, _) => { _buyNowShop = shopBox.SelectedItem as string == "All shops" ? null : shopBox.SelectedItem as string; Refresh(); };
             controls.Children.Add(shopBox);
             if (_buyNowShop != null)
             {
-                var here = items.Where(i => string.Equals(ShopOf(i, shopNames), _buyNowShop, StringComparison.OrdinalIgnoreCase)).ToList();
+                var here = items.Where(i => AtShop(i, shopNames, _buyNowShop)).ToList();
                 controls.Children.Add(new Border { Width = 12 });
                 controls.Children.Add(Ui.Btn($"✓ Bought everything here ({here.Count})", () =>
                 {
@@ -288,7 +429,7 @@ public sealed class BuyView : DockPanel, IPage
         // the items
         var body = new StackPanel();
         var shown = buyNow
-            ? (_buyNowShop == null ? items : items.Where(i => string.Equals(ShopOf(i, shopNames), _buyNowShop, StringComparison.OrdinalIgnoreCase)).ToList())
+            ? (_buyNowShop == null ? items : items.Where(i => AtShop(i, shopNames, _buyNowShop)).ToList())
             : items.Where(i => i.Done == _doneView).ToList();
         if (shown.Count == 0)
             body.Children.Add(Ui.EmptyState(_doneView ? "Nothing bought yet" : buyNow ? "Nothing to buy" : "This list is empty",
@@ -305,6 +446,13 @@ public sealed class BuyView : DockPanel, IPage
         root.Children.Add(Ui.Scroll(body));
         return root;
     }
+
+    /// <summary>The Buy Now filter for items with no shop (a distinct value: null means every shop).</summary>
+    private const string NoShop = "No Shop";
+
+    private static bool AtShop(Item i, Dictionary<long, string> shopNames, string? shop) => shop == NoShop
+        ? string.IsNullOrWhiteSpace(ShopOf(i, shopNames))
+        : string.Equals(ShopOf(i, shopNames), shop, StringComparison.OrdinalIgnoreCase);
 
     private static string? ShopOf(Item i, Dictionary<long, string> shopNames) =>
         (i.ShopId is long sid && shopNames.TryGetValue(sid, out var sn) ? sn : i.ShopName)?.Trim();

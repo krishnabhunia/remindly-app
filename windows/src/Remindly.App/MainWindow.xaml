@@ -1,56 +1,25 @@
 <Window x:Class="Remindly.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Remindly" Width="1120" Height="780" MinWidth="820" MinHeight="560"
-        WindowStartupLocation="CenterScreen" FontFamily="Segoe UI" FontSize="14"
-        Background="{StaticResource SurfaceBrush}" Icon="Assets/app.ico">
+        Title="Remindly" Width="1180" Height="800" MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen" FontSize="14" Icon="Assets/app.ico">
     <Grid>
-        <DockPanel>
-            <!-- Header: name, VERSION (always visible on the home window), update banner, mode switch -->
-            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBrush}" Padding="18,10,18,10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Image Source="Assets/app-256.png" Width="38" Height="38" Margin="0,0,12,0" />
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="Remindly" FontSize="21" FontWeight="Bold" Foreground="White" />
-                            <TextBlock x:Name="VersionText" Text="Version" FontSize="12.5" Foreground="#EEFFFFFF" />
-                        </StackPanel>
-                    </StackPanel>
+        <!-- The navigation model. It is never drawn: each design (Views/Shells.cs) draws its own menu and drives these tabs,
+             so Go(), the tray, reminders and the smoke test work the same in every design. -->
+        <TabControl x:Name="NavTabs" Visibility="Collapsed" SelectionChanged="NavTabs_SelectionChanged">
+            <TabItem x:Name="TodayTab" Header="Today" />
+            <TabItem x:Name="TasksTab" Header="Tasks" />
+            <TabItem x:Name="LearnTab" Header="Learn" />
+            <TabItem x:Name="CallsTab" Header="Calls" />
+            <TabItem x:Name="OverviewTab" Header="Overview" />
+            <TabItem x:Name="BuyTab" Header="Buy" />
+            <TabItem x:Name="ShopsTab" Header="Shops" />
+            <TabItem x:Name="ProductsTab" Header="Products" />
+            <TabItem x:Name="SettingsTab" Header="Settings" />
+        </TabControl>
 
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <RadioButton x:Name="TaskModeButton" GroupName="mode" Content="☑  Task mode" Style="{StaticResource Chip}" Checked="TaskMode_Checked" />
-                        <RadioButton x:Name="ShopModeButton" GroupName="mode" Content="🛒  Shop mode" Style="{StaticResource Chip}" Checked="ShopMode_Checked" />
-                    <Border x:Name="UpdateBanner" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Center"
-                            Background="#33FFFFFF" CornerRadius="10" Padding="8,4" Margin="10,0,0,0">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="UpdateBannerText" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0" />
-                            <Button x:Name="UpdateBannerButton" Content="Update now" Click="UpdateBannerButton_Click" />
-                        </StackPanel>
-                    </Border>
-
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,0">
-                <TabControl x:Name="NavTabs" BorderThickness="0" Background="Transparent" Padding="0" SelectionChanged="NavTabs_SelectionChanged">
-                    <TabItem x:Name="TasksTab" Header="Tasks" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="LearnTab" Header="Learn" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="CallsTab" Header="Calls" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="BuyTab" Header="Buy" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="ShopsTab" Header="Shops" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="ProductsTab" Header="Products" Style="{StaticResource NavTab}" />
-                    <TabItem x:Name="SettingsTab" Header="Settings" Style="{StaticResource NavTab}" />
-                </TabControl>
-            </Border>
-
-            <ContentControl x:Name="Page" Margin="22,14,14,10" Focusable="False" />
-        </DockPanel>
+        <!-- The current design's shell: menu, mode switch, version, the top-right update button and the page. -->
+        <ContentControl x:Name="ShellHost" Focusable="False" />
 
         <!-- Snackbar: "Moved to Done" + Undo -->
         <Border x:Name="SnackBar" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24"

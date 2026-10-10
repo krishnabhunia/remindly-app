@@ -148,9 +148,14 @@ public static class Ui
             Stretch = Stretch.None,
             AlignmentX = AlignmentX.Left,
             AlignmentY = AlignmentY.Center,
-            Visual = new TextBlock { Text = placeholder, Foreground = Res("InkHintBrush"), Margin = new Thickness(8, 0, 0, 0), FontSize = 14 },
+            Visual = new Border
+            {
+                Background = Res("InputBrush"),
+                Child = new TextBlock { Text = placeholder, Foreground = Res("InkHintBrush"), Margin = new Thickness(8, 0, 0, 0), FontSize = 14, FontFamily = (FontFamily)Application.Current.Resources["AppFont"] },
+            },
         };
-        void Update() => t.Background = string.IsNullOrEmpty(t.Text) ? hint : Brushes.White;
+        var ground = Res("InputBrush");
+        void Update() => t.Background = string.IsNullOrEmpty(t.Text) ? hint : ground;
         t.TextChanged += (_, _) => Update();
         Update();
     }
@@ -201,6 +206,97 @@ public static class Ui
         if (App.IsSmokeTest) return;
         MessageBox.Show(Application.Current.MainWindow, text, title, MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    // ───────────────────────── design helpers (Settings → Appearance) ─────────────────────────
+
+    /// <summary>Windows' own icon fonts: Segoe Fluent Icons on Windows 11, Segoe MDL2 Assets on Windows 10.</summary>
+    public static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    public static TextBlock Glyph(string code, double size = 16, Brush? color = null) => new()
+    {
+        Text = code,
+        FontFamily = IconFont,
+        FontSize = size,
+        Foreground = color ?? Res("InkSubtleBrush"),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    public static TextBlock Mono(string text, double size = 12.5, Brush? color = null)
+    {
+        var t = Text(text, size, color: color ?? Res("InkSubtleBrush"), wrap: false);
+        t.FontFamily = (FontFamily)Application.Current.Resources["MonoFont"];
+        return t;
+    }
+
+    public static CornerRadius CardRadius => (CornerRadius)Application.Current.Resources["CardRadius"];
+
+    public static CornerRadius ControlRadius => (CornerRadius)Application.Current.Resources["ControlRadius"];
+
+    /// <summary>A flat button (hover tint) holding any content: menus, segments, tiles, rows.</summary>
+    public static Button Plain(object content, Action onClick, string? tip = null, double height = double.NaN)
+    {
+        var b = new Button { Content = content, ToolTip = tip, Style = (Style)Application.Current.Resources["Plain"], Height = height, Margin = new Thickness(0) };
+        b.Click += (_, _) => onClick();
+        return b;
+    }
+
+    /// <summary>Rounded count / status badge.</summary>
+    public static Border Pill(string text, Brush fg, Brush bg, double size = 11.5, FontWeight? weight = null) => new()
+    {
+        Background = bg,
+        CornerRadius = new CornerRadius(10),
+        Padding = new Thickness(8, 2, 8, 2),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = size, Foreground = fg, FontWeight = weight ?? FontWeights.SemiBold },
+    };
+
+    /// <summary>A rounded panel (the tiles of the Today Hub, the board columns).</summary>
+    public static Border Tile(UIElement child, Brush? background = null, double padding = 18, Brush? border = null) => new()
+    {
+        Child = child,
+        Background = background ?? Res("CardBrush"),
+        BorderBrush = border ?? Brushes.Transparent,
+        BorderThickness = new Thickness(border == null ? 0 : 1),
+        CornerRadius = CardRadius,
+        Padding = new Thickness(padding),
+    };
+
+    /// <summary>A progress ring: a track circle, an arc for <paramref name="fraction"/> and optional centre content.</summary>
+    public static Grid Ring(double fraction, double size, Brush accent, Brush track, UIElement? centre = null, double thickness = 7)
+    {
+        fraction = double.IsFinite(fraction) ? Math.Clamp(fraction, 0, 1) : 0;
+        var g = new Grid { Width = size, Height = size, VerticalAlignment = VerticalAlignment.Center };
+        g.Children.Add(new System.Windows.Shapes.Ellipse { Stroke = track, StrokeThickness = thickness });
+        double r = (size - thickness) / 2, c = size / 2;
+        if (fraction >= 0.999)
+            g.Children.Add(new System.Windows.Shapes.Ellipse { Stroke = accent, StrokeThickness = thickness });
+        else if (fraction > 0.001)
+        {
+            double angle = fraction * 2 * Math.PI;
+            var end = new Point(c + r * Math.Sin(angle), c - r * Math.Cos(angle));
+            var fig = new PathFigure { StartPoint = new Point(c, c - r), IsClosed = false };
+            fig.Segments.Add(new ArcSegment(end, new Size(r, r), 0, fraction > 0.5, SweepDirection.Clockwise, true));
+            g.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = new PathGeometry(new[] { fig }),
+                Stroke = accent,
+                StrokeThickness = thickness,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+            });
+        }
+        if (centre != null)
+        {
+            if (centre is FrameworkElement fe) { fe.HorizontalAlignment = HorizontalAlignment.Center; fe.VerticalAlignment = VerticalAlignment.Center; }
+            g.Children.Add(centre);
+        }
+        return g;
+    }
+
+    /// <summary>"₹1,240" (whole rupees when round).</summary>
+    public static string Rupees(double v) => "₹" + (v == Math.Floor(v)
+        ? v.ToString("#,##0", System.Globalization.CultureInfo.InvariantCulture)
+        : v.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>Meta line for a card: "Today · 09:00 AM · Weekly · Mon · notes".</summary>
     public static string DueText(long? dueAt, bool hasTime, long now)

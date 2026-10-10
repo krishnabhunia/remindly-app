@@ -3,6 +3,25 @@
 Each `## X.Y.Z` section becomes the notes of GitHub Release `win-vX.Y.Z`. The CI refuses to build a
 version that has no section here.
 
+## Next minor release — four designs to choose from (09-Oct-2026)
+
+**Settings → Appearance** now offers four designs for the Windows app. Design **A** is the default; the
+choice is kept on this PC only (Android is unchanged, and importing a backup never changes it).
+
+| SrNo. | Design | Layout | Look |
+|---|---|---|---|
+| 1 | **A · Fluent** (default) | left menu with the Task/Shop switch and counts; your list with a **details pane** beside it | Windows 11: Segoe UI, light grey ground, indigo / green |
+| 2 | **B · Day Board** | top bar with a centred Task/Shop pill and section tabs; Tasks/Learn as **Overdue · Today · Tomorrow · Later columns** (with "Move all to today" and "+ Add to today"); Buy shows your **lists side by side** | Manrope, blue / orange |
+| 3 | **C · Command Dark** | dark sidebar with **quick views** (Today, Overdue, Next 7 days, Repeating, Personal) and your lists; a **Ctrl+K command bar** that adds to the open section; dense table rows; Buy opens on **everything to buy, grouped by shop** | dark, IBM Plex, violet / mint |
+| 4 | **D · Today Hub** | new **Today** home (due today with overdue, call-backs with Call/WhatsApp, next 7 days, learning progress, today's shopping) and a Shop **Overview** (list progress rings, Buy now by store, cheapest shop seen, next trip) | rounded tiles, Plus Jakarta Sans, violet / green |
+
+- Every design keeps the installed version in the main window and the top-right **Update to vX.Y.Z** button,
+  which appears only when GitHub offers a newer eligible version.
+- New keyboard shortcuts in every design: **Ctrl+1…4** open the menu entries, **Ctrl+M** switches Task / Shop.
+- Right-click a task (board cards, rows, tiles) for Edit · Done · Snooze · **Move to today** · Open link · Delete.
+- The UI smoke test now opens every screen in every design.
+- Fonts bundled under the SIL Open Font License 1.1: Manrope, IBM Plex Sans / Mono, Plus Jakarta Sans.
+
 ## 2.11.0 — first Windows release, in step with Android 2.11 (29-Sep-2026)
 
 **Remindly now runs on Windows 10 and 11**, with the same records as the phone.

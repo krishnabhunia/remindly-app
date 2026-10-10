@@ -50,6 +50,9 @@
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
     <Resource Include="Assets\app-256.png" />
+    <!-- Design fonts (SIL Open Font License 1.1, licence texts beside them): Manrope (B), IBM Plex (C), Plus Jakarta Sans (D). -->
+    <Resource Include="Assets\Fonts\*.ttf" />
+    <Resource Include="Assets\Fonts\OFL-*.txt" />
   </ItemGroup>
 
 </Project>

@@ -286,6 +286,8 @@ public sealed record AppSettings
     /// <summary>Hour a date-only due rings at.</summary>
     public int DefaultDueHour { get; init; } = 9;
     public int DeviceTag { get; init; }
+    /// <summary>Desktop look chosen in Settings → Appearance: FLUENT (A, default) · BOARD · COMMAND · HUB. This PC only.</summary>
+    public string Design { get; init; } = Designs.Default;
 }
 
 /// <summary>Everything Remindly for Windows stores, in one JSON document.</summary>

@@ -60,10 +60,11 @@ public sealed class ItemEditor : EditorWindow
     private Slider? _progress;
     private TextBox? _hours;
 
-    public static void New(Tab tab, long? listId = null, string title = "")
+    public static void New(Tab tab, long? listId = null, string title = "", long? dueAt = null)
     {
         var state = AppState.Current;
         var item = state.NewItem(tab, title);
+        if (dueAt is long due) item = item with { DueAt = due, DueHasTime = true };
         if (tab == Tab.SHOP)
         {
             var list = listId is long l && l >= 0 ? state.List(l) : (listId == null && state.Settings.ShopDefaultListId is long d ? state.List(d) : null);

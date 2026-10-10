@@ -10,7 +10,7 @@ public abstract class EditorWindow : Window
 {
     protected readonly StackPanel Form = new() { Margin = new Thickness(20, 12, 20, 12) };
     private readonly StackPanel _buttons = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(20, 8, 14, 14) };
-    protected readonly TextBlock Warning = new() { Foreground = Brushes.DarkGoldenrod, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 0, 20, 0), Visibility = Visibility.Collapsed };
+    protected readonly TextBlock Warning = new() {  TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 0, 20, 0), Visibility = Visibility.Collapsed };
 
     protected EditorWindow(string title, double width = 520)
     {
@@ -21,9 +21,9 @@ public abstract class EditorWindow : Window
         ResizeMode = ResizeMode.CanResizeWithGrip;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
-        FontFamily = new FontFamily("Segoe UI");
+        Theme.Dress(this);
         FontSize = 14;
-        Background = Ui.Res("CardBrush");
+        Warning.SetResourceReference(TextBlock.ForegroundProperty, "AmberBrush");
         if (Application.Current.MainWindow is { IsVisible: true } owner && owner != this) Owner = owner;
 
         var root = new DockPanel();
