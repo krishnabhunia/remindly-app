@@ -24,6 +24,7 @@ public sealed class UpdateCoordinator
     private readonly DispatcherTimer _pendingTimer = new() { Interval = TimeSpan.FromMinutes(2) };
     private string? _pendingFile;
     private bool _busy;
+    private string? _pendingVersionPin;
 
     public UpdateCheckResult? Last { get; private set; }
     public string Status { get; private set; } = "";
@@ -91,7 +92,21 @@ public sealed class UpdateCoordinator
         }
         Last = new UpdateCheckResult(UpdateStatus.UpdateAvailable, UpdateService.CurrentVersion, release,
             $"Selected Remindly {release.DisplayVersion} for installation.");
+        _pendingVersionPin = release.DisplayVersion;
         await DownloadAndInstallAsync(background: false);
+    }
+
+    public void ClearVersionPin()
+    {
+        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = null });
+        SetStatus("Version pin removed. You can choose another release.");
+    }
+
+    private void PersistSelectedVersion()
+    {
+        if (_pendingVersionPin is not { } version) return;
+        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = version });
+        _pendingVersionPin = null;
     }
 
     /// <summary>Checks now. Automatic checks only notify; they never select/install the latest version.</summary>
@@ -109,7 +124,11 @@ public sealed class UpdateCoordinator
             AppState.Current.UpdateSettingsQuiet(x => x with { UpdateLastCheck = Clock.NowMs() });
             SetStatus(r.Message);
             if (r.Status == UpdateStatus.UpdateAvailable)
-                App.Tray?.Balloon("Remindly update", r.Message + " Open Settings → Updates to choose a version.");
+            {
+                if (AppState.Current.Settings.UpdatePinnedVersion is { Length: > 0 } pin)
+                    SetStatus($"Pinned to Remindly {pin}. Open version history to choose another release.");
+                else App.Tray?.Balloon("Remindly update", r.Message + " Open Settings → Updates to choose a version.");
+            }
             return r;
         }
         catch (Exception ex)
@@ -146,6 +165,7 @@ public sealed class UpdateCoordinator
         {
             Progress = -1;
             Log.Error("Update download/install failed", ex);
+            _pendingVersionPin = null;
             SetStatus("Update failed: " + ex.Message);
             if (background) App.Tray?.Balloon("Remindly update failed", ex.Message, warning: true);
         }
@@ -192,6 +212,7 @@ public sealed class UpdateCoordinator
                 var args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /REMINDLYUPDATE=1" + (hidden ? " /RELAUNCH=tray" : "");
                 Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(file)! });
                 Log.Info("Started Setup for the background update: " + file);
+                PersistSelectedVersion();
                 App.Current.ExitApp("installing update");
                 return;
             }
@@ -209,10 +230,12 @@ public sealed class UpdateCoordinator
             }
             Process.Start(new ProcessStartInfo(exe, "--updated" + (hidden ? " --tray" : "")) { UseShellExecute = false, WorkingDirectory = InstallInfo.ExeDirectory });
             Log.Info("Portable copy replaced; restarting " + exe);
+            PersistSelectedVersion();
             App.Current.ExitApp("portable update applied");
         }
         catch (Exception ex)
         {
+            _pendingVersionPin = null;
             Log.Error("Applying the update failed", ex);
             SetStatus("Could not install the update: " + ex.Message + " — download it from the Releases page.");
             App.Tray?.Balloon("Remindly update", "Could not install the update automatically. Open Settings → Updates.", warning: true);
