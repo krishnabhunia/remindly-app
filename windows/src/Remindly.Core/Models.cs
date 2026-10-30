@@ -272,6 +272,8 @@ public sealed record AppSettings
     /// <summary>The "Auto update" checkbox: check GitHub once a day and install new versions in the background.</summary>
     public bool UpdateAutoCheck { get; init; } = true;
     public bool UpdateBeta { get; init; }
+    /// <summary>Explicit user-selected version; automatic checks must never override this pin.</summary>
+    public string? UpdatePinnedVersion { get; init; }
     /// <summary>Epoch ms of the last update check (0 = never).</summary>
     public long UpdateLastCheck { get; init; }
     public bool StartWithWindows { get; init; }
