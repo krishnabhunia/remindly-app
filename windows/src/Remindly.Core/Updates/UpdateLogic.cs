@@ -113,6 +113,19 @@ public static class UpdateLogic
             .OrderByDescending(r => Normalize(r.Version)).ThenBy(r => r.IsBeta)
             .ThenByDescending(r => BetaBuild(r.DisplayVersion)).FirstOrDefault();
 
+    /// <summary>
+    /// Exact-version picker. Includes only releases with an installable ZIP and checksum.
+    /// An older release is offered for explicit rollback, never for automatic installation.
+    /// </summary>
+    public static IReadOnlyList<ReleaseInfo> SelectVersions(IEnumerable<ReleaseInfo> releases, string current, bool older, bool includeBeta = true) =>
+        releases.Where(r => (includeBeta || !r.IsBeta) && IsWindowsTag(r.TagName))
+            .Where(r => PickZip(r) is ReleaseAsset zip && PickChecksum(r, zip) != null)
+            .Where(r => older
+                ? !IsNewer(current, r) && !string.Equals(current.TrimStart('v', 'V'), r.DisplayVersion, StringComparison.OrdinalIgnoreCase)
+                : IsNewer(current, r))
+            .OrderByDescending(r => Normalize(r.Version)).ThenBy(r => r.IsBeta)
+            .ThenByDescending(r => BetaBuild(r.DisplayVersion)).ToArray();
+
     /// <summary>Fallback without the API (rate limit): the releases Atom feed lists the recent tags.</summary>
     public static List<string> ParseAtomTags(string atom)
     {
