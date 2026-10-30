@@ -67,7 +67,34 @@ public sealed class UpdateCoordinator
         await CheckNowAsync(interactive: false);
     }
 
-    /// <summary>Checks now. Automatic checks with Auto update on also download and install.</summary>
+    /// <summary>List exact targets; a version cannot be installed until the user selects it.</summary>
+    public Task<IReadOnlyList<ReleaseInfo>> ListVersionsAsync(CancellationToken ct) => _service.ListVersionsAsync(ct);
+
+    /// <summary>Explicit, verified version change, including a requested older beta/stable release.</summary>
+    public async Task InstallSelectedAsync(ReleaseInfo release)
+    {
+        if (_busy || UpdateLogic.PickZip(release) is not ReleaseAsset asset ||
+            UpdateLogic.PickChecksum(release, asset) == null)
+            throw new InvalidOperationException("This release has no verified Windows installer.");
+        if (string.Equals(release.DisplayVersion, UpdateService.CurrentDisplayVersion, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("This version is already installed.");
+
+        // A permanent version-specific snapshot is kept outside the updater download directory.
+        // Stop before changing binaries if preserving user data fails.
+        if (File.Exists(AppPaths.DataFile))
+        {
+            Directory.CreateDirectory(AppPaths.BackupDir);
+            var backup = Path.Combine(AppPaths.BackupDir,
+                $"before-version-change-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.json");
+            File.Copy(AppPaths.DataFile, backup);
+            Log.Info("Saved pre-version-change data backup: " + backup);
+        }
+        Last = new UpdateCheckResult(UpdateStatus.UpdateAvailable, UpdateService.CurrentVersion, release,
+            $"Selected Remindly {release.DisplayVersion} for installation.");
+        await DownloadAndInstallAsync(background: false);
+    }
+
+    /// <summary>Checks now. Automatic checks only notify; they never select/install the latest version.</summary>
     public async Task<UpdateCheckResult?> CheckNowAsync(bool interactive)
     {
         if (_busy) return Last;
@@ -82,14 +109,7 @@ public sealed class UpdateCoordinator
             AppState.Current.UpdateSettingsQuiet(x => x with { UpdateLastCheck = Clock.NowMs() });
             SetStatus(r.Message);
             if (r.Status == UpdateStatus.UpdateAvailable)
-            {
-                if (!interactive && AppState.Current.Settings.UpdateAutoCheck)
-                {
-                    _busy = false;
-                    await DownloadAndInstallAsync(background: true);
-                }
-                else App.Tray?.Balloon("Remindly update", r.Message + " Open Settings → Updates to install it.");
-            }
+                App.Tray?.Balloon("Remindly update", r.Message + " Open Settings → Updates to choose a version.");
             return r;
         }
         catch (Exception ex)
@@ -105,7 +125,6 @@ public sealed class UpdateCoordinator
     public async Task DownloadAndInstallAsync(bool background)
     {
         if (_busy || Last?.Release is not ReleaseInfo release || Last.Status != UpdateStatus.UpdateAvailable) return;
-        if (release.IsBeta && !AppState.Current.Settings.UpdateBeta) { ResetChannel(); return; }
         _busy = true;
         try
         {
@@ -114,7 +133,6 @@ public sealed class UpdateCoordinator
             var zip = await _service.DownloadAsync(release, new Progress<int>(p => { Progress = p; Changed?.Invoke(); }), CancellationToken.None);
             var file = await Task.Run(() => UpdateService.ExtractForMode(zip, installed));
             Progress = -1;
-            if (release.IsBeta && !AppState.Current.Settings.UpdateBeta) { ResetChannel(); return; }
             _pendingFile = file;
             if (background && UserIsBusy())
             {
