@@ -247,6 +247,27 @@ public sealed class SettingsView : ScrollViewer, IPage
             Text = $"Installed: v{UpdateService.CurrentDisplayVersion} — choose the exact build; no release is preselected.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
         });
+        if (AppState.Current.Settings.UpdatePinnedVersion is { Length: > 0 } pinned)
+        {
+            var pinLabel = new TextBlock
+            {
+                Text = $"Pinned version: v{pinned}. Automatic checks cannot override your choice.",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6)
+            };
+            var unpin = new Button
+            {
+                Content = "Clear version pin", HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 0, 10)
+            };
+            unpin.Click += (_, _) =>
+            {
+                coordinator.ClearVersionPin();
+                pinLabel.Text = "Version pin removed.";
+                unpin.IsEnabled = false;
+            };
+            root.Children.Add(pinLabel);
+            root.Children.Add(unpin);
+        }
         var mode = new ComboBox { Width = 210, Margin = new Thickness(0, 0, 12, 10), HorizontalAlignment = HorizontalAlignment.Left };
         mode.Items.Add("Newer updates");
         mode.Items.Add("Older versions / Rollback");
