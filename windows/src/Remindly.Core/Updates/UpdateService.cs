@@ -39,6 +39,17 @@ public sealed class UpdateService
         return c;
     }
 
+    /// <summary>Reads every verified Windows release for the explicit update/rollback picker.</summary>
+    public async Task<IReadOnlyList<ReleaseInfo>> ListVersionsAsync(CancellationToken ct)
+    {
+        using var response = await Http.GetAsync(UpdateLogic.ReleasesApiUrl, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var releases = UpdateLogic.ParseReleaseList(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        // Do not offer incomplete releases: downloading requires the ZIP and its SHA-256 companion.
+        return releases.Where(r => UpdateLogic.PickZip(r) is ReleaseAsset asset &&
+                                   UpdateLogic.PickChecksum(r, asset) != null).ToArray();
+    }
+
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct, bool includeBeta = false)
     {
         var current = CurrentVersion;
