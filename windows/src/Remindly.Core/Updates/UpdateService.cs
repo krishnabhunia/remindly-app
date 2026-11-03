@@ -65,7 +65,23 @@ public sealed class UpdateService
     /// <summary>Returns checksum-backed Windows releases for explicit version selection.</summary>
     public async Task<IReadOnlyList<ReleaseInfo>> ListVersionsAsync(CancellationToken ct)
     {
-        var releases = await FetchCatalogAsync(ct).ConfigureAwait(false);
+        List<ReleaseInfo> releases;
+        try
+        {
+            releases = await FetchCatalogAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            // A rate-limited GitHub API must not make the picker unusable while
+            // the public releases feed and checksum-backed downloads still work.
+            Log.Warn("Version-history API failed; falling back to Atom: " + ex.Message);
+            var atom = await Http.GetStringAsync(UpdateLogic.ReleasesAtomUrl, ct).ConfigureAwait(false);
+            releases = UpdateLogic.ParseAtomTags(atom)
+                .Select(UpdateLogic.ReleaseFromTag)
+                .OfType<ReleaseInfo>()
+                .ToList();
+        }
         return releases.Where(r => UpdateLogic.PickZip(r) is ReleaseAsset asset &&
                                    UpdateLogic.PickChecksum(r, asset) != null).ToArray();
     }
@@ -114,19 +130,34 @@ public sealed class UpdateService
     /// <summary>Downloads the release zip into the updates folder and verifies its SHA-256. Returns the zip path.</summary>
     public async Task<string> DownloadAsync(ReleaseInfo release, IProgress<int>? progress, CancellationToken ct)
     {
-        var asset = UpdateLogic.PickZip(release) ?? throw new InvalidOperationException($"Release {release.TagName} has no Remindly-Windows zip.");
+        var preferred = UpdateLogic.PickZip(release) ??
+            throw new InvalidOperationException($"Release {release.TagName} has no Remindly Windows archive.");
+        // Atom has no asset metadata, so its release candidates may contain both
+        // modern and legacy names. Select only a candidate with a real, valid SHA.
+        var candidates = new[] { preferred }.Concat(release.Assets.Where(a =>
+            a != preferred && a.Name.StartsWith("Remindly", StringComparison.OrdinalIgnoreCase) &&
+            a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)));
+        ReleaseAsset? asset = null;
+        string? expected = null;
+        foreach (var candidate in candidates)
+        {
+            if (UpdateLogic.PickChecksum(release, candidate) is not ReleaseAsset sum) continue;
+            try
+            {
+                var digest = UpdateLogic.ParseSha256(await Http.GetStringAsync(sum.DownloadUrl, ct).ConfigureAwait(false));
+                if (digest == null) continue;
+                asset = candidate;
+                expected = digest;
+                break;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { Log.Warn("Checksum probe failed for " + candidate.Name + ": " + ex.Message); }
+        }
+        if (asset == null || expected == null)
+            throw new InvalidDataException("The release has no readable SHA-256 checksum — the update was not downloaded.");
         Directory.CreateDirectory(AppPaths.UpdatesDir);
         var target = Path.Combine(AppPaths.UpdatesDir, asset.Name);
         var partial = target + ".partial";
-
-        string? expected = null;
-        if (UpdateLogic.PickChecksum(release, asset) is ReleaseAsset sum)
-        {
-            try { expected = UpdateLogic.ParseSha256(await Http.GetStringAsync(sum.DownloadUrl, ct).ConfigureAwait(false)); }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception ex) { Log.Warn("Checksum download failed: " + ex.Message); }
-        }
-        if (expected == null) throw new InvalidDataException("The release has no readable SHA-256 checksum — the update was not downloaded.");
 
         // A previous verified download is reused.
         if (File.Exists(target) && string.Equals(await Sha256Async(target, ct).ConfigureAwait(false), expected, StringComparison.OrdinalIgnoreCase))

@@ -55,7 +55,9 @@ public class UpdateLogicTests
         var tags = UpdateLogic.ParseAtomTags(atom);
         Assert.Equal(new[] { "win-v2.12.0" }, tags.ToArray());
         var r = UpdateLogic.ReleaseFromTag(tags[0])!;
-        Assert.Equal("https://github.com/krishnabhunia/remindly-app/releases/download/win-v2.12.0/Remindly-Windows-2.12.0.zip", UpdateLogic.PickZip(r)!.DownloadUrl);
+        Assert.Equal("https://github.com/krishnabhunia/remindly-app/releases/download/win-v2.12.0/Remindly_2.12.0.zip", UpdateLogic.PickZip(r)!.DownloadUrl);
+        Assert.Contains(r.Assets, asset => asset.Name == "Remindly-Windows-2.12.0.zip");
+        Assert.Contains(r.Assets, asset => asset.Name == "Remindly-Windows-2.12.0.zip.sha256");
     }
 
     [Fact]
@@ -143,6 +145,37 @@ public class UpdateLogicTests
         Assert.Equal("2.15.0-beta.105.21.1", UpdateLogic.PickLatest(releases, includeBeta: true)!.DisplayVersion);
         Assert.Equal(new[] { "2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1" },
             UpdateLogic.SelectVersions(releases, "2.15.0-beta.104.999.1", older: false).Select(r => r.DisplayVersion));
+    }
+
+    [Theory]
+    [InlineData("2.15.0", "2.14.0", true, true)]
+    [InlineData("2.15.0-beta.105.3.1", "2.15.0-beta.104.4.1", true, true)]
+    [InlineData("2.15.0", "2.16.0", true, false)]
+    [InlineData("2.15.0", "2.14.0", false, false)]
+    public void Only_portable_rollbacks_require_disabling_legacy_auto_checks(
+        string current, string target, bool portable, bool expected) =>
+        Assert.Equal(expected, UpdateLogic.RequiresLegacyAutoCheckOff(current, target, portable));
+
+    [Fact]
+    public void Rollback_never_qualifies_for_newer_update_banner()
+    {
+        var older = UpdateLogic.ReleaseFromTag("win-v2.14.0")!;
+        var newer = UpdateLogic.ReleaseFromTag("win-v2.16.0")!;
+        Assert.False(UpdateLogic.IsNewer("2.15.0", older));
+        Assert.True(UpdateLogic.IsNewer("2.15.0", newer));
+    }
+
+    [Fact]
+    public void Atom_fallback_builds_checksum_backed_version_choices()
+    {
+        const string feed = "<feed><entry><link href=\"https://github.com/krishnabhunia/remindly-app/releases/tag/win-v2.14.0\"/></entry></feed>";
+        var versions = UpdateLogic.ParseAtomTags(feed)
+            .Select(UpdateLogic.ReleaseFromTag)
+            .OfType<ReleaseInfo>()
+            .ToArray();
+        Assert.Single(versions);
+        Assert.Single(UpdateLogic.SelectVersions(versions, "2.15.0", older: true));
+        Assert.NotNull(UpdateLogic.PickChecksum(versions[0], UpdateLogic.PickZip(versions[0])!));
     }
 
     [Fact]

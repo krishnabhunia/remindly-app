@@ -319,7 +319,10 @@ public sealed class SettingsView : ScrollViewer, IPage
             var rollback = mode.SelectedIndex == 1;
             if (MessageBox.Show(window,
                     $"Installed: v{UpdateService.CurrentDisplayVersion}\nSelected: v{chosen.Release.DisplayVersion} ({(chosen.Release.IsBeta ? "Beta" : "Stable")})\n\n" +
-                    "Back up data and install exactly this release? The application will restart.",
+                    "Back up data and install exactly this release? The application will restart." +
+                    (rollback && !InstallInfo.IsInstalledMode()
+                        ? "\n\nAutomatic update checks will be disabled in the older portable version to preserve your choice."
+                        : ""),
                     rollback ? "Confirm rollback" : "Confirm selected update",
                     MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 

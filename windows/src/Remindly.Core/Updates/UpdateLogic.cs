@@ -105,6 +105,10 @@ public static class UpdateLogic
     public static bool IsNewer(string current, ReleaseInfo candidate) =>
         CompareVersions(candidate.DisplayVersion, current) > 0;
 
+    /// <summary>Prevent legacy portable builds from silently undoing a chosen downgrade.</summary>
+    public static bool RequiresLegacyAutoCheckOff(string current, string target, bool portableMode) =>
+        portableMode && CompareVersions(target, current) < 0;
+
     public static string ZipName(Version v) => $"Remindly-Windows-{v.ToString(3)}.zip";
 
     public static string SetupName(Version v) => $"Remindly-Setup-{v.ToString(3)}.exe";
@@ -182,9 +186,18 @@ public static class UpdateLogic
         if (!IsWindowsTag(tag)) return null;
         var v = ParseVersion(tag)!;
         string Dl(string name) => $"{RepoUrl}/releases/download/{Uri.EscapeDataString(tag)}/{name}";
-        var zip = tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? ZipName(v) : $"Remindly_{tag[1..]}.zip";
+        // The Atom feed exposes tags, not asset names. Support both the current
+        // unified archive and historical Windows-only archives; DownloadAsync
+        // probes their checksums and installs only a verified existing asset.
+        var display = tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? tag[5..] : tag.TrimStart('v');
+        var unified = $"Remindly_{display}.zip";
+        var legacy = ZipName(v);
         return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, tag.Contains("-beta."),
-            new List<ReleaseAsset> { new(zip, Dl(zip), 0), new(zip + ".sha256", Dl(zip + ".sha256"), 0) });
+            new List<ReleaseAsset>
+            {
+                new(unified, Dl(unified), 0), new(unified + ".sha256", Dl(unified + ".sha256"), 0),
+                new(legacy, Dl(legacy), 0), new(legacy + ".sha256", Dl(legacy + ".sha256"), 0)
+            });
     }
 
     public static ReleaseAsset? PickZip(ReleaseInfo r) =>

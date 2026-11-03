@@ -23,6 +23,7 @@ public sealed class UpdateCoordinator
     private string? _pendingFile;
     private bool _busy;
     private string? _pendingVersionPin;
+    private bool _restoreAutoCheckOnFailure;
 
     public UpdateCheckResult? Last { get; private set; }
     public string Status { get; private set; } = "";
@@ -129,7 +130,17 @@ public sealed class UpdateCoordinator
     private bool StageSelectedVersionPin()
     {
         if (_pendingVersionPin is not { } version) return false;
-        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePendingPinnedVersion = version });
+        // An older portable executable may not understand the new version pin and
+        // may silently reinstall the newest build. Disable the legacy auto-update
+        // setting before the old executable starts.
+        bool disableLegacyAutoUpdate = UpdateLogic.RequiresLegacyAutoCheckOff(
+            UpdateService.CurrentDisplayVersion, version, portableMode: !InstallInfo.IsInstalledMode());
+        _restoreAutoCheckOnFailure = disableLegacyAutoUpdate && AppState.Current.Settings.UpdateAutoCheck;
+        AppState.Current.UpdateSettingsQuiet(x => x with
+        {
+            UpdatePendingPinnedVersion = version,
+            UpdateAutoCheck = disableLegacyAutoUpdate ? false : x.UpdateAutoCheck
+        });
         var saved = DataStore.Parse(File.ReadAllText(AppPaths.DataFile));
         if (!string.Equals(saved?.Settings.UpdatePendingPinnedVersion, version, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Could not persist the selected version safely; the update was stopped.");
@@ -237,7 +248,7 @@ public sealed class UpdateCoordinator
         if (file == null || !File.Exists(file)) return;
         _pendingFile = null;
         bool hidden = Application.Current.MainWindow is not { IsVisible: true };
-        bool stagedPin = false;
+        bool attemptedStagePin = false;
         bool replacedPortable = false;
         string? originalPortable = null;
         string? previousPortable = null;
@@ -247,7 +258,8 @@ public sealed class UpdateCoordinator
             {
                 // Setup finds this copy running, asks it to exit (--exit → the Exit event), installs and starts it again.
                 var args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /REMINDLYUPDATE=1" + (hidden ? " /RELAUNCH=tray" : "");
-                stagedPin = StageSelectedVersionPin();
+                attemptedStagePin = true;
+                StageSelectedVersionPin();
                 using var installer = Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(file)! });
                 if (installer is null) throw new InvalidOperationException("The selected installer did not start.");
                 Log.Info("Started Setup for the selected update: " + file);
@@ -272,7 +284,8 @@ public sealed class UpdateCoordinator
             originalPortable = exe;
             previousPortable = old;
             replacedPortable = true;
-            stagedPin = StageSelectedVersionPin();
+            attemptedStagePin = true;
+            StageSelectedVersionPin();
             using var restarted = Process.Start(new ProcessStartInfo(exe, "--updated" + (hidden ? " --tray" : "")) { UseShellExecute = false, WorkingDirectory = InstallInfo.ExeDirectory });
             if (restarted is null) throw new InvalidOperationException("The selected portable executable did not start.");
             Log.Info("Portable copy replaced; restarting " + exe);
@@ -281,8 +294,13 @@ public sealed class UpdateCoordinator
         catch (Exception ex)
         {
             _pendingVersionPin = null;
-            if (stagedPin)
-                AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePendingPinnedVersion = null });
+            if (attemptedStagePin)
+                AppState.Current.UpdateSettingsQuiet(x => x with
+                {
+                    UpdatePendingPinnedVersion = null,
+                    UpdateAutoCheck = _restoreAutoCheckOnFailure || x.UpdateAutoCheck
+                });
+            _restoreAutoCheckOnFailure = false;
             string recovery = "";
             if (replacedPortable && originalPortable != null && previousPortable != null && File.Exists(previousPortable))
             {
