@@ -317,7 +317,8 @@ public partial class MainWindow : Window
     private void RefreshUpdateBanner()
     {
         var u = App.Updates;
-        if (_updateButton != null && u?.Last is { Status: UpdateStatus.UpdateAvailable, Release: ReleaseInfo r })
+        if (_updateButton != null && u?.Last is { Status: UpdateStatus.UpdateAvailable, Release: ReleaseInfo r } &&
+            UpdateLogic.IsNewer(UpdateService.CurrentDisplayVersion, r))
         {
             UpdateSlot.Visibility = Visibility.Visible;
             // The label stays "Update to vx.y.z" (AGENTS.md); download progress goes in the tooltip.
