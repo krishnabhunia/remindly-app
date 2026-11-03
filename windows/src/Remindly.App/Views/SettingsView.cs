@@ -226,7 +226,7 @@ public sealed class SettingsView : ScrollViewer, IPage
     }
 
     /// <summary>Explicitly choose a published, checksum-backed Windows update or previous version.</summary>
-    private async Task OpenVersionPickerAsync()
+    public async Task OpenVersionPickerAsync()
     {
         if (App.Updates is not { Busy: false } coordinator) return;
         IReadOnlyList<ReleaseInfo> catalog;
@@ -299,26 +299,38 @@ public sealed class SettingsView : ScrollViewer, IPage
             options.ItemsSource = filtered;
             options.SelectedItem = null;
             apply.IsEnabled = false;
-            if (filtered.Count == 0) warning.Text = "No compatible verified releases were found for this filter.";
-            else warning.Text = "Your data will be backed up before installation. A downgrade may require manually restoring the original version if its data format has changed.";
+            apply.Content = "Select a version to continue";
+            if (filtered.Count == 0) warning.Text = "No Windows release with a published checksum matches this filter.";
+            else warning.Text = "Your data will be backed up before installation. Download checksums are verified before replacement; an older version may not read newer data.";
         }
         mode.SelectionChanged += (_, _) => Populate();
         channel.SelectionChanged += (_, _) => Populate();
-        options.SelectionChanged += (_, _) => apply.IsEnabled = options.SelectedItem is VersionChoice;
+        options.SelectionChanged += (_, _) =>
+        {
+            apply.IsEnabled = options.SelectedItem is VersionChoice;
+            if (options.SelectedItem is VersionChoice choice)
+                apply.Content = mode.SelectedIndex == 1
+                    ? $"Review rollback to v{choice.Release.DisplayVersion}"
+                    : $"Install v{choice.Release.DisplayVersion}";
+        };
         apply.Click += async (_, _) =>
         {
             if (options.SelectedItem is not VersionChoice chosen) return;
             var rollback = mode.SelectedIndex == 1;
             if (MessageBox.Show(window,
-                    $"Installed: v{UpdateService.CurrentDisplayVersion}\\nSelected: v{chosen.Release.DisplayVersion} ({(chosen.Release.IsBeta ? "Beta" : "Stable")})\\n\\n" +
+                    $"Installed: v{UpdateService.CurrentDisplayVersion}\nSelected: v{chosen.Release.DisplayVersion} ({(chosen.Release.IsBeta ? "Beta" : "Stable")})\n\n" +
                     "Back up data and install exactly this release? The application will restart.",
                     rollback ? "Confirm rollback" : "Confirm selected update",
                     MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 
             if (rollback && InstallInfo.IsInstalledMode())
             {
-                MessageBox.Show(window, "Automatic downgrade of the installed Windows package has not passed compatibility testing. " +
-                    "The verified older release page will open instead; keep your existing data backup before proceeding.",
+                string? backup;
+                try { backup = UpdateCoordinator.CreateVersionBackup(); }
+                catch (Exception ex) { Ui.Info("Rollback stopped because your data could not be backed up: " + ex.Message); return; }
+                MessageBox.Show(window, "Installed-edition downgrade has not passed compatibility testing. " +
+                    "The selected release page will open for manual installer review. " +
+                    (backup is null ? "There was no existing data file to back up." : "Your data backup is saved at: " + backup),
                     "Manual rollback required", MessageBoxButton.OK, MessageBoxImage.Information);
                 InstallInfo.OpenUrl(chosen.Release.HtmlUrl);
                 return;

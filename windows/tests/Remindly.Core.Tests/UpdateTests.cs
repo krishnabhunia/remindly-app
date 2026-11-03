@@ -113,6 +113,39 @@ public class UpdateLogicTests
     }
 
     [Fact]
+    public void Incomplete_newest_release_never_hides_a_verified_older_release()
+    {
+        var goodTag = "win-v2.14.0";
+        var good = new ReleaseInfo(new Version(2, 14, 0), goodTag, goodTag, "", null, false,
+            [new("Remindly_2.14.0.zip", "https://example.test/zip", 100),
+             new("Remindly_2.14.0.zip.sha256", "https://example.test/sha", 64)]);
+        var incomplete = new ReleaseInfo(new Version(2, 15, 0), "win-v2.15.0", "Incomplete", "", null, false, []);
+        Assert.Equal(goodTag, UpdateLogic.PickLatest([incomplete, good])!.TagName);
+    }
+
+    [Fact]
+    public void Multi_part_beta_identifiers_sort_by_pr_then_run_not_only_last_number()
+    {
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.20.1", "2.15.0-beta.104.999.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0", "2.15.0-beta.105.21.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.21.1", "2.15.0") < 0);
+
+        ReleaseInfo Release(string version)
+        {
+            var tag = "win-v" + version;
+            var zip = "Remindly_" + version + ".zip";
+            return new ReleaseInfo(UpdateLogic.ParseVersion(tag)!, tag, tag, "", null, true,
+                [new(zip, "https://example.test/zip", 100), new(zip + ".sha256", "https://example.test/sha", 64)]);
+        }
+
+        var releases = new[] { Release("2.15.0-beta.104.999.1"), Release("2.15.0-beta.105.21.1"), Release("2.15.0-beta.105.20.1") };
+        Assert.Equal("2.15.0-beta.105.21.1", UpdateLogic.PickLatest(releases, includeBeta: true)!.DisplayVersion);
+        Assert.Equal(new[] { "2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1" },
+            UpdateLogic.SelectVersions(releases, "2.15.0-beta.104.999.1", older: false).Select(r => r.DisplayVersion));
+    }
+
+    [Fact]
     public void Auto_update_checks_once_on_the_next_day()
     {
         long last = T.At(2026, 9, 29, 8);

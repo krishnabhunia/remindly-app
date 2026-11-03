@@ -274,6 +274,8 @@ public sealed record AppSettings
     public bool UpdateBeta { get; init; }
     /// <summary>Explicit user-selected version; automatic checks must never override this pin.</summary>
     public string? UpdatePinnedVersion { get; init; }
+    /// <summary>A requested version awaiting a successful startup; never treat installer launch as install success.</summary>
+    public string? UpdatePendingPinnedVersion { get; init; }
     /// <summary>Epoch ms of the last update check (0 = never).</summary>
     public long UpdateLastCheck { get; init; }
     public bool StartWithWindows { get; init; }

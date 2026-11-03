@@ -8,13 +8,11 @@ using Remindly.Core.Updates;
 namespace Remindly.App.Services;
 
 /// <summary>
-/// The "Auto update" behaviour:
-///  • checks GitHub once a day — the first time on the day after the last check (never twice a day);
-///  • with Auto update ticked, a newer version is downloaded, verified (SHA-256) and installed in the
-///    background: an installed copy runs the new Setup silently (Setup closes this copy, updates and
-///    starts it again); a portable copy swaps its exe and restarts;
-///  • the install waits while you are in the middle of something (an editor or a reminder is open,
-///    or Remindly is the active window) and goes ahead at the next quiet moment.
+/// Version-aware update behavior:
+///  • checks GitHub at startup and then daily when enabled;
+///  • automatic checks notify but never download or install a release on their own;
+///  • only the exact version the user selects may be downloaded, checksum-verified and installed;
+///  • a chosen version becomes pinned only after that executable successfully starts.
 /// With the box unticked nothing is checked automatically; Settings → Updates → Check now still works.
 /// </summary>
 public sealed class UpdateCoordinator
@@ -40,8 +38,25 @@ public sealed class UpdateCoordinator
 
     public void Start()
     {
-        CleanPortableLeftover();
+        // Complete a pin only when the selected executable is actually running.
+        // If an installer failed and the previous version reopened, discard the pending pin.
         var s = AppState.Current.Settings;
+        if (s.UpdatePendingPinnedVersion is { Length: > 0 } pending)
+        {
+            var installed = UpdateService.CurrentDisplayVersion;
+            AppState.Current.UpdateSettingsQuiet(x => x with
+            {
+                UpdatePinnedVersion = string.Equals(pending, installed, StringComparison.OrdinalIgnoreCase)
+                    ? pending : x.UpdatePinnedVersion,
+                UpdatePendingPinnedVersion = null
+            });
+        }
+        else if (s.UpdatePinnedVersion is { Length: > 0 } pinned &&
+                 !string.Equals(pinned, UpdateService.CurrentDisplayVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = null });
+        }
+        // Keep Remindly.old.exe as a recoverable previous portable build.
         SystemEvents.PowerModeChanged += (_, e) =>
         {
             if (e.Mode == PowerModes.Resume) Application.Current.Dispatcher.BeginInvoke(async () => await TickAsync());
@@ -80,33 +95,46 @@ public sealed class UpdateCoordinator
         if (string.Equals(release.DisplayVersion, UpdateService.CurrentDisplayVersion, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("This version is already installed.");
 
-        // A permanent version-specific snapshot is kept outside the updater download directory.
-        // Stop before changing binaries if preserving user data fails.
-        if (File.Exists(AppPaths.DataFile))
-        {
-            Directory.CreateDirectory(AppPaths.BackupDir);
-            var backup = Path.Combine(AppPaths.BackupDir,
-                $"before-version-change-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.json");
-            File.Copy(AppPaths.DataFile, backup);
-            Log.Info("Saved pre-version-change data backup: " + backup);
-        }
+        // Stop before changing binaries if the data file cannot be read or backed up.
+        CreateVersionBackup();
         Last = new UpdateCheckResult(UpdateStatus.UpdateAvailable, UpdateService.CurrentVersion, release,
             $"Selected Remindly {release.DisplayVersion} for installation.");
         _pendingVersionPin = release.DisplayVersion;
         await DownloadAndInstallAsync(background: false);
     }
 
+    /// <summary>Save validated user data before any version change, including manual installed rollback.</summary>
+    public static string? CreateVersionBackup()
+    {
+        if (!File.Exists(AppPaths.DataFile)) return null;
+        if ((File.GetAttributes(AppPaths.DataFile) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("The data file is a link. The version change was stopped.");
+        if (DataStore.Parse(File.ReadAllText(AppPaths.DataFile)) is null)
+            throw new InvalidDataException("The current data file could not be validated. The version change was stopped.");
+        Directory.CreateDirectory(AppPaths.BackupDir);
+        var backup = Path.Combine(AppPaths.BackupDir,
+            $"before-version-change-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.json");
+        File.Copy(AppPaths.DataFile, backup, overwrite: false);
+        Log.Info("Saved pre-version-change data backup: " + backup);
+        return backup;
+    }
+
     public void ClearVersionPin()
     {
-        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = null });
+        _pendingVersionPin = null;
+        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = null, UpdatePendingPinnedVersion = null });
         SetStatus("Version pin removed. You can choose another release.");
     }
 
-    private void PersistSelectedVersion()
+    private bool StageSelectedVersionPin()
     {
-        if (_pendingVersionPin is not { } version) return;
-        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePinnedVersion = version });
+        if (_pendingVersionPin is not { } version) return false;
+        AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePendingPinnedVersion = version });
+        var saved = DataStore.Parse(File.ReadAllText(AppPaths.DataFile));
+        if (!string.Equals(saved?.Settings.UpdatePendingPinnedVersion, version, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Could not persist the selected version safely; the update was stopped.");
         _pendingVersionPin = null;
+        return true;
     }
 
     /// <summary>Checks now. Automatic checks only notify; they never select/install the latest version.</summary>
@@ -144,6 +172,11 @@ public sealed class UpdateCoordinator
     public async Task DownloadAndInstallAsync(bool background)
     {
         if (_busy || Last?.Release is not ReleaseInfo release || Last.Status != UpdateStatus.UpdateAvailable) return;
+        if (_pendingVersionPin is null)
+        {
+            SetStatus("Choose the exact version from Version History before downloading.");
+            return;
+        }
         _busy = true;
         try
         {
@@ -204,15 +237,20 @@ public sealed class UpdateCoordinator
         if (file == null || !File.Exists(file)) return;
         _pendingFile = null;
         bool hidden = Application.Current.MainWindow is not { IsVisible: true };
+        bool stagedPin = false;
+        bool replacedPortable = false;
+        string? originalPortable = null;
+        string? previousPortable = null;
         try
         {
             if (InstallInfo.IsInstalledMode())
             {
                 // Setup finds this copy running, asks it to exit (--exit → the Exit event), installs and starts it again.
                 var args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /REMINDLYUPDATE=1" + (hidden ? " /RELAUNCH=tray" : "");
-                Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(file)! });
-                Log.Info("Started Setup for the background update: " + file);
-                PersistSelectedVersion();
+                stagedPin = StageSelectedVersionPin();
+                using var installer = Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(file)! });
+                if (installer is null) throw new InvalidOperationException("The selected installer did not start.");
+                Log.Info("Started Setup for the selected update: " + file);
                 App.Current.ExitApp("installing update");
                 return;
             }
@@ -225,32 +263,54 @@ public sealed class UpdateCoordinator
             try { File.Copy(file, exe, overwrite: true); }
             catch
             {
-                File.Move(old, exe); // put the running version back
+                // File.Copy can leave a partially written destination. Remove it
+                // before restoring the original executable.
+                try { if (File.Exists(exe)) File.Delete(exe); } catch { /* report original copy failure */ }
+                if (!File.Exists(exe)) File.Move(old, exe);
                 throw;
             }
-            Process.Start(new ProcessStartInfo(exe, "--updated" + (hidden ? " --tray" : "")) { UseShellExecute = false, WorkingDirectory = InstallInfo.ExeDirectory });
+            originalPortable = exe;
+            previousPortable = old;
+            replacedPortable = true;
+            stagedPin = StageSelectedVersionPin();
+            using var restarted = Process.Start(new ProcessStartInfo(exe, "--updated" + (hidden ? " --tray" : "")) { UseShellExecute = false, WorkingDirectory = InstallInfo.ExeDirectory });
+            if (restarted is null) throw new InvalidOperationException("The selected portable executable did not start.");
             Log.Info("Portable copy replaced; restarting " + exe);
-            PersistSelectedVersion();
             App.Current.ExitApp("portable update applied");
         }
         catch (Exception ex)
         {
             _pendingVersionPin = null;
+            if (stagedPin)
+                AppState.Current.UpdateSettingsQuiet(x => x with { UpdatePendingPinnedVersion = null });
+            string recovery = "";
+            if (replacedPortable && originalPortable != null && previousPortable != null && File.Exists(previousPortable))
+            {
+                string? failed = null;
+                try
+                {
+                    if (File.Exists(originalPortable))
+                    {
+                        failed = Path.Combine(AppPaths.UpdatesDir, "Remindly-failed-" + Guid.NewGuid().ToString("N") + ".exe");
+                        File.Move(originalPortable, failed);
+                    }
+                    File.Move(previousPortable, originalPortable);
+                    recovery = " The previous executable was restored.";
+                }
+                catch (Exception restoreError)
+                {
+                    if (failed != null && !File.Exists(originalPortable) && File.Exists(failed))
+                    {
+                        try { File.Move(failed, originalPortable); } catch { /* preserve the recovery error */ }
+                    }
+                    Log.Error("Could not restore the old portable executable", restoreError);
+                    recovery = " Restore the previous executable manually from " + previousPortable + ".";
+                }
+            }
             Log.Error("Applying the update failed", ex);
-            SetStatus("Could not install the update: " + ex.Message + " — download it from the Releases page.");
-            App.Tray?.Balloon("Remindly update", "Could not install the update automatically. Open Settings → Updates.", warning: true);
+            SetStatus("Could not install the selected version: " + ex.Message + "." + recovery);
+            App.Tray?.Balloon("Remindly update", "The selected version could not be started. Open Settings → Updates.", warning: true);
         }
-    }
-
-    /// <summary>The previous portable exe stays behind as Remindly.old.exe until the next start.</summary>
-    private static void CleanPortableLeftover()
-    {
-        try
-        {
-            var old = Path.Combine(InstallInfo.ExeDirectory, "Remindly.old.exe");
-            if (File.Exists(old)) File.Delete(old);
-        }
-        catch { /* the old process may still be exiting */ }
     }
 
     private void SetStatus(string s)
