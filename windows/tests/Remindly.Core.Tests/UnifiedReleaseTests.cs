@@ -7,7 +7,8 @@ public class UnifiedReleaseTests
 {
     private static ReleaseInfo Release(string version, bool beta = false) => new(
         UpdateLogic.ParseVersion(version)!, "v" + version, "Remindly", "https://github.com", null, beta,
-        new() { new($"Remindly_{version}.zip", "https://github.com/build.zip", 10) });
+        new() { new($"Remindly_{version}.zip", "https://github.com/build.zip", 10),
+                new($"Remindly_{version}.zip.sha256", "https://github.com/build.zip.sha256", 64) });
 
     [Fact]
     public void StableDefaultRejectsBeta_andOptInOrdersBuildsAndStablePromotion()
