@@ -105,6 +105,10 @@ public static class UpdateLogic
     public static bool IsNewer(string current, ReleaseInfo candidate) =>
         CompareVersions(candidate.DisplayVersion, current) > 0;
 
+    /// <summary>Prevent legacy portable builds from silently undoing a chosen downgrade.</summary>
+    public static bool RequiresLegacyAutoCheckOff(string current, string target, bool portableMode) =>
+        portableMode && CompareVersions(target, current) < 0;
+
     public static string ZipName(Version v) => $"Remindly-Windows-{v.ToString(3)}.zip";
 
     public static string SetupName(Version v) => $"Remindly-Setup-{v.ToString(3)}.exe";
