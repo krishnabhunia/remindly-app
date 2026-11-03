@@ -55,7 +55,9 @@ public class UpdateLogicTests
         var tags = UpdateLogic.ParseAtomTags(atom);
         Assert.Equal(new[] { "win-v2.12.0" }, tags.ToArray());
         var r = UpdateLogic.ReleaseFromTag(tags[0])!;
-        Assert.Equal("https://github.com/krishnabhunia/remindly-app/releases/download/win-v2.12.0/Remindly-Windows-2.12.0.zip", UpdateLogic.PickZip(r)!.DownloadUrl);
+        Assert.Equal("https://github.com/krishnabhunia/remindly-app/releases/download/win-v2.12.0/Remindly_2.12.0.zip", UpdateLogic.PickZip(r)!.DownloadUrl);
+        Assert.Contains(r.Assets, asset => asset.Name == "Remindly-Windows-2.12.0.zip");
+        Assert.Contains(r.Assets, asset => asset.Name == "Remindly-Windows-2.12.0.zip.sha256");
     }
 
     [Fact]
