@@ -331,7 +331,11 @@ public partial class MainWindow : Window
 
     private async void UpdateBannerButton_Click(object sender, RoutedEventArgs e)
     {
-        if (App.Updates != null) await App.Updates.DownloadAndInstallAsync(background: false);
+        // A notification opens the exact-version chooser. It must never install
+        // whichever release happens to be latest without an explicit selection.
+        Go(SettingsTab);
+        if (PageFor(SettingsTab) is SettingsView settings)
+            await settings.OpenVersionPickerAsync();
     }
 
     // ───────────────────────── close → notification area ─────────────────────────

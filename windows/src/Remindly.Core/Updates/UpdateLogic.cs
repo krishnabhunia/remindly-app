@@ -57,18 +57,53 @@ public static class UpdateLogic
 
     public static bool IsNewer(Version current, Version candidate) => Normalize(candidate) > Normalize(current);
 
-    public static int BetaBuild(string name) => name.Contains("-beta.", StringComparison.OrdinalIgnoreCase) &&
-        int.TryParse(name.Split('.').Last(), out var n) ? n : 0;
-
-    public static bool IsNewer(string current, ReleaseInfo candidate)
+    /// <summary>Compare the whole version, including every numeric beta identifier (PR and run numbers).</summary>
+    public static int CompareVersions(string left, string right)
     {
-        var version = ParseVersion(current) ?? new Version(0, 0, 0);
-        var order = Normalize(candidate.Version).CompareTo(Normalize(version));
-        if (order != 0) return order > 0;
-        bool currentBeta = current.Contains("-beta.", StringComparison.OrdinalIgnoreCase);
-        if (currentBeta && !candidate.IsBeta) return true;
-        return currentBeta && candidate.IsBeta && BetaBuild(candidate.DisplayVersion) > BetaBuild(current);
+        var coreLeft = Normalize(ParseVersion(left) ?? new Version(0, 0, 0));
+        var coreRight = Normalize(ParseVersion(right) ?? new Version(0, 0, 0));
+        var core = coreLeft.CompareTo(coreRight);
+        if (core != 0) return core;
+
+        var leftBeta = left.Contains("-beta", StringComparison.OrdinalIgnoreCase);
+        var rightBeta = right.Contains("-beta", StringComparison.OrdinalIgnoreCase);
+        if (leftBeta != rightBeta) return leftBeta ? -1 : 1;
+        if (!leftBeta) return 0;
+
+        static string[] Ids(string label)
+        {
+            var index = label.IndexOf("-beta", StringComparison.OrdinalIgnoreCase);
+            var suffix = label[(index + 5)..].Split('+')[0].TrimStart('.');
+            return suffix.Length == 0 ? [] : suffix.Split('.');
+        }
+
+        var l = Ids(left);
+        var r = Ids(right);
+        for (int i = 0; i < Math.Min(l.Length, r.Length); i++)
+        {
+            var leftNumeric = l[i].Length > 0 && l[i].All(char.IsDigit);
+            var rightNumeric = r[i].Length > 0 && r[i].All(char.IsDigit);
+            if (leftNumeric != rightNumeric) return leftNumeric ? -1 : 1;
+            if (leftNumeric)
+            {
+                var x = l[i].TrimStart('0');
+                var y = r[i].TrimStart('0');
+                var numberOrder = x.Length.CompareTo(y.Length);
+                if (numberOrder != 0) return numberOrder;
+                numberOrder = string.CompareOrdinal(x, y);
+                if (numberOrder != 0) return numberOrder;
+            }
+            else
+            {
+                var order = string.Compare(l[i], r[i], StringComparison.OrdinalIgnoreCase);
+                if (order != 0) return order;
+            }
+        }
+        return l.Length.CompareTo(r.Length);
     }
+
+    public static bool IsNewer(string current, ReleaseInfo candidate) =>
+        CompareVersions(candidate.DisplayVersion, current) > 0;
 
     public static string ZipName(Version v) => $"Remindly-Windows-{v.ToString(3)}.zip";
 
@@ -110,8 +145,24 @@ public static class UpdateLogic
     /// <summary>The newest non-prerelease Windows release, or null.</summary>
     public static ReleaseInfo? PickLatest(IEnumerable<ReleaseInfo> releases, bool includeBeta = false) =>
         releases.Where(r => (includeBeta || !r.IsBeta) && IsWindowsTag(r.TagName))
-            .OrderByDescending(r => Normalize(r.Version)).ThenBy(r => r.IsBeta)
-            .ThenByDescending(r => BetaBuild(r.DisplayVersion)).FirstOrDefault();
+            .Where(r => PickZip(r) is ReleaseAsset zip && PickChecksum(r, zip) != null)
+            .OrderByDescending(r => r.DisplayVersion, Comparer<string>.Create(CompareVersions))
+            .ThenByDescending(r => r.TagName.StartsWith("win-v", StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Exact-version picker. Includes only releases with an installable ZIP and checksum.
+    /// An older release is offered for explicit rollback, never for automatic installation.
+    /// </summary>
+    public static IReadOnlyList<ReleaseInfo> SelectVersions(IEnumerable<ReleaseInfo> releases, string current, bool older, bool includeBeta = true) =>
+        releases.Where(r => (includeBeta || !r.IsBeta) && IsWindowsTag(r.TagName))
+            .Where(r => PickZip(r) is ReleaseAsset zip && PickChecksum(r, zip) != null)
+            .Where(r => older
+                ? CompareVersions(r.DisplayVersion, current) < 0
+                : CompareVersions(r.DisplayVersion, current) > 0)
+            .OrderByDescending(r => r.DisplayVersion, Comparer<string>.Create(CompareVersions))
+            .ThenByDescending(r => r.TagName.StartsWith("win-v", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
     /// <summary>Fallback without the API (rate limit): the releases Atom feed lists the recent tags.</summary>
     public static List<string> ParseAtomTags(string atom)

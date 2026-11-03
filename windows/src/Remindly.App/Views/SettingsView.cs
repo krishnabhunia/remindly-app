@@ -28,10 +28,9 @@ public sealed class SettingsView : ScrollViewer, IPage
             await App.Updates.CheckNowAsync(interactive: true);
             RefreshUpdates();
         });
-        _installBtn = Ui.Btn("Download and install", async () =>
+        _installBtn = Ui.Btn("Version history / Choose version", async () =>
         {
-            if (App.Updates == null) return;
-            await App.Updates.DownloadAndInstallAsync(background: false);
+            await OpenVersionPickerAsync();
             RefreshUpdates();
         });
         // Only while shown: a design switch replaces this page, and the old one must not keep listening.
@@ -60,8 +59,7 @@ public sealed class SettingsView : ScrollViewer, IPage
         {
             state.UpdateSettingsQuiet(x => x with { UpdateAutoCheck = on });
             RefreshUpdates();
-        }, "Checks GitHub at startup and daily, and installs a new version in the background. " +
-           "Remindly restarts by itself when you are not using it; your data stays."));
+        }, "Checks GitHub at startup and daily, then notifies you. An update is never installed until you choose its exact version."));
         upd.Children.Add(Ui.Setting("Include beta updates", s.UpdateBeta, on =>
         {
             state.UpdateSettingsQuiet(x => x with { UpdateBeta = on });
@@ -214,11 +212,135 @@ public sealed class SettingsView : ScrollViewer, IPage
         _updateTimes.Text = s.UpdateAutoCheck ? $"Last check: {last} · next automatic check: {next}" : $"Last check: {last} · automatic checks are off";
         _updateStatus.Text = u?.Status ?? "";
         _checkBtn.IsEnabled = u is { Busy: false };
-        _installBtn.Visibility = u?.Last?.Status == UpdateStatus.UpdateAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _installBtn.Content = u?.Last?.Release is ReleaseInfo r ? $"Install {r.DisplayVersion} now" : "Download and install";
+        _installBtn.Visibility = Visibility.Visible;
+        _installBtn.Content = "Version history / Choose version";
         _installBtn.IsEnabled = u is { Busy: false };
         _updateProgress.Visibility = u is { Progress: >= 0 } ? Visibility.Visible : Visibility.Collapsed;
         _updateProgress.Value = Math.Max(0, u?.Progress ?? 0);
+    }
+
+    private sealed record VersionChoice(ReleaseInfo Release)
+    {
+        public override string ToString() =>
+            $"v{Release.DisplayVersion}  ·  {(Release.IsBeta ? "Beta" : "Stable")}  ·  {Release.Name}";
+    }
+
+    /// <summary>Explicitly choose a published, checksum-backed Windows update or previous version.</summary>
+    public async Task OpenVersionPickerAsync()
+    {
+        if (App.Updates is not { Busy: false } coordinator) return;
+        IReadOnlyList<ReleaseInfo> catalog;
+        try { catalog = await coordinator.ListVersionsAsync(CancellationToken.None); }
+        catch (Exception ex) { Ui.Info("Could not load version history from GitHub: " + ex.Message); return; }
+
+        var owner = Window.GetWindow(this);
+        var window = new Window
+        {
+            Title = "Remindly · Version History",
+            Width = 670, Height = 565, MinWidth = 520, MinHeight = 400,
+            WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
+            Owner = owner, ShowInTaskbar = false,
+        };
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"Installed: v{UpdateService.CurrentDisplayVersion} — choose the exact build; no release is preselected.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
+        });
+        if (AppState.Current.Settings.UpdatePinnedVersion is { Length: > 0 } pinned)
+        {
+            var pinLabel = new TextBlock
+            {
+                Text = $"Pinned version: v{pinned}. Automatic checks cannot override your choice.",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6)
+            };
+            var unpin = new Button
+            {
+                Content = "Clear version pin", HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 0, 10)
+            };
+            unpin.Click += (_, _) =>
+            {
+                coordinator.ClearVersionPin();
+                pinLabel.Text = "Version pin removed.";
+                unpin.IsEnabled = false;
+            };
+            root.Children.Add(pinLabel);
+            root.Children.Add(unpin);
+        }
+        var mode = new ComboBox { Width = 210, Margin = new Thickness(0, 0, 12, 10), HorizontalAlignment = HorizontalAlignment.Left };
+        mode.Items.Add("Newer updates");
+        mode.Items.Add("Older versions / Rollback");
+        mode.SelectedIndex = 0;
+        var channel = new ComboBox { Width = 210, Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
+        channel.Items.Add("All channels");
+        channel.Items.Add("Stable only");
+        channel.Items.Add("Beta only");
+        channel.SelectedIndex = 0;
+        root.Children.Add(Ui.Row(mode, channel));
+        var options = new ListBox { Height = 290, Margin = new Thickness(0, 0, 0, 10) };
+        root.Children.Add(options);
+        var warning = new TextBlock
+        {
+            Text = "Before applying, Remindly backs up its data and verifies the download. Older installed-app downgrades need installer compatibility validation.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
+        };
+        root.Children.Add(warning);
+        var apply = new Button { Content = "Review selected version", IsEnabled = false, Padding = new Thickness(14, 8, 14, 8), HorizontalAlignment = HorizontalAlignment.Left };
+        root.Children.Add(apply);
+        window.Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        void Populate()
+        {
+            var rollback = mode.SelectedIndex == 1;
+            var filtered = UpdateLogic.SelectVersions(catalog, UpdateService.CurrentDisplayVersion, rollback)
+                .Where(r => channel.SelectedIndex switch { 1 => !r.IsBeta, 2 => r.IsBeta, _ => true })
+                .Select(r => new VersionChoice(r)).ToList();
+            options.ItemsSource = filtered;
+            options.SelectedItem = null;
+            apply.IsEnabled = false;
+            apply.Content = "Select a version to continue";
+            if (filtered.Count == 0) warning.Text = "No Windows release with a published checksum matches this filter.";
+            else warning.Text = "Your data will be backed up before installation. Download checksums are verified before replacement; an older version may not read newer data.";
+        }
+        mode.SelectionChanged += (_, _) => Populate();
+        channel.SelectionChanged += (_, _) => Populate();
+        options.SelectionChanged += (_, _) =>
+        {
+            apply.IsEnabled = options.SelectedItem is VersionChoice;
+            if (options.SelectedItem is VersionChoice choice)
+                apply.Content = mode.SelectedIndex == 1
+                    ? $"Review rollback to v{choice.Release.DisplayVersion}"
+                    : $"Install v{choice.Release.DisplayVersion}";
+        };
+        apply.Click += async (_, _) =>
+        {
+            if (options.SelectedItem is not VersionChoice chosen) return;
+            var rollback = mode.SelectedIndex == 1;
+            if (MessageBox.Show(window,
+                    $"Installed: v{UpdateService.CurrentDisplayVersion}\nSelected: v{chosen.Release.DisplayVersion} ({(chosen.Release.IsBeta ? "Beta" : "Stable")})\n\n" +
+                    "Back up data and install exactly this release? The application will restart.",
+                    rollback ? "Confirm rollback" : "Confirm selected update",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+
+            if (rollback && InstallInfo.IsInstalledMode())
+            {
+                string? backup;
+                try { backup = UpdateCoordinator.CreateVersionBackup(); }
+                catch (Exception ex) { Ui.Info("Rollback stopped because your data could not be backed up: " + ex.Message); return; }
+                MessageBox.Show(window, "Installed-edition downgrade has not passed compatibility testing. " +
+                    "The selected release page will open for manual installer review. " +
+                    (backup is null ? "There was no existing data file to back up." : "Your data backup is saved at: " + backup),
+                    "Manual rollback required", MessageBoxButton.OK, MessageBoxImage.Information);
+                InstallInfo.OpenUrl(chosen.Release.HtmlUrl);
+                return;
+            }
+            window.Close();
+            try { await coordinator.InstallSelectedAsync(chosen.Release); }
+            catch (Exception ex) { Ui.Info("The selected version could not be installed: " + ex.Message); }
+        };
+        Populate();
+        window.ShowDialog();
     }
 
     private void Import()

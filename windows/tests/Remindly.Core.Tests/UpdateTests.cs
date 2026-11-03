@@ -84,6 +84,68 @@ public class UpdateLogicTests
     }
 
     [Fact]
+    public void Version_picker_filters_exact_newer_and_older_verified_releases()
+    {
+        ReleaseInfo Release(string tag, bool beta = false, bool checksum = true)
+        {
+            var version = UpdateLogic.ParseVersion(tag)!;
+            var display = tag.StartsWith("win-v") ? tag[5..] : tag[1..];
+            var zip = $"Remindly_{display}.zip";
+            var assets = new List<ReleaseAsset> { new(zip, "https://example.test/" + zip, 100) };
+            if (checksum) assets.Add(new(zip + ".sha256", "https://example.test/" + zip + ".sha256", 64));
+            return new ReleaseInfo(version, tag, tag, "", "", beta, assets);
+        }
+
+        var releases = new[]
+        {
+            Release("win-v2.15.0"),
+            Release("win-v2.16.0-beta.2", beta: true),
+            Release("win-v2.14.0"),
+            Release("win-v2.13.2"),
+            Release("win-v2.12.0", checksum: false),
+        };
+        var updates = UpdateLogic.SelectVersions(releases, "2.14.0", older: false);
+        Assert.Equal(new[] { "2.16.0-beta.2", "2.15.0" }, updates.Select(r => r.DisplayVersion));
+        var stableUpdates = UpdateLogic.SelectVersions(releases, "2.14.0", older: false, includeBeta: false);
+        Assert.Equal(new[] { "2.15.0" }, stableUpdates.Select(r => r.DisplayVersion));
+        var older = UpdateLogic.SelectVersions(releases, "2.14.0", older: true);
+        Assert.Equal(new[] { "2.13.2" }, older.Select(r => r.DisplayVersion));
+    }
+
+    [Fact]
+    public void Incomplete_newest_release_never_hides_a_verified_older_release()
+    {
+        var goodTag = "win-v2.14.0";
+        var good = new ReleaseInfo(new Version(2, 14, 0), goodTag, goodTag, "", null, false,
+            [new("Remindly_2.14.0.zip", "https://example.test/zip", 100),
+             new("Remindly_2.14.0.zip.sha256", "https://example.test/sha", 64)]);
+        var incomplete = new ReleaseInfo(new Version(2, 15, 0), "win-v2.15.0", "Incomplete", "", null, false, []);
+        Assert.Equal(goodTag, UpdateLogic.PickLatest([incomplete, good])!.TagName);
+    }
+
+    [Fact]
+    public void Multi_part_beta_identifiers_sort_by_pr_then_run_not_only_last_number()
+    {
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.20.1", "2.15.0-beta.104.999.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0", "2.15.0-beta.105.21.1") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.15.0-beta.105.21.1", "2.15.0") < 0);
+
+        ReleaseInfo Release(string version)
+        {
+            var tag = "win-v" + version;
+            var zip = "Remindly_" + version + ".zip";
+            return new ReleaseInfo(UpdateLogic.ParseVersion(tag)!, tag, tag, "", null, true,
+                [new(zip, "https://example.test/zip", 100), new(zip + ".sha256", "https://example.test/sha", 64)]);
+        }
+
+        var releases = new[] { Release("2.15.0-beta.104.999.1"), Release("2.15.0-beta.105.21.1"), Release("2.15.0-beta.105.20.1") };
+        Assert.Equal("2.15.0-beta.105.21.1", UpdateLogic.PickLatest(releases, includeBeta: true)!.DisplayVersion);
+        Assert.Equal(new[] { "2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1" },
+            UpdateLogic.SelectVersions(releases, "2.15.0-beta.104.999.1", older: false).Select(r => r.DisplayVersion));
+    }
+
+    [Fact]
     public void Auto_update_checks_once_on_the_next_day()
     {
         long last = T.At(2026, 9, 29, 8);

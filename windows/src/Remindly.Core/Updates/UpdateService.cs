@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace Remindly.Core.Updates;
 
@@ -39,6 +40,36 @@ public sealed class UpdateService
         return c;
     }
 
+    /// <summary>Reads every published page, including releases beyond the newest 40.</summary>
+    private static async Task<List<ReleaseInfo>> FetchCatalogAsync(CancellationToken ct)
+    {
+        const int pageSize = 40;
+        const int maxPages = 50; // Fail explicitly if GitHub has more than 2,000 releases.
+        var releases = new List<ReleaseInfo>();
+        for (int page = 1; page <= maxPages; page++)
+        {
+            var url = UpdateLogic.ReleasesApiUrl + (page == 1 ? "" : "&page=" + page);
+            using var response = await Http.GetAsync(url, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("GitHub returned an invalid release catalog.");
+            releases.AddRange(UpdateLogic.ParseReleaseList(json));
+            // Count raw entries, not Windows releases: a page may contain only Android releases.
+            if (document.RootElement.GetArrayLength() < pageSize) return releases;
+        }
+        throw new InvalidDataException("GitHub's release catalog exceeds the supported pagination limit; no partial list was offered.");
+    }
+
+    /// <summary>Returns checksum-backed Windows releases for explicit version selection.</summary>
+    public async Task<IReadOnlyList<ReleaseInfo>> ListVersionsAsync(CancellationToken ct)
+    {
+        var releases = await FetchCatalogAsync(ct).ConfigureAwait(false);
+        return releases.Where(r => UpdateLogic.PickZip(r) is ReleaseAsset asset &&
+                                   UpdateLogic.PickChecksum(r, asset) != null).ToArray();
+    }
+
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct, bool includeBeta = false)
     {
         var current = CurrentVersion;
@@ -46,13 +77,8 @@ public sealed class UpdateService
         string? failure = null;
         try
         {
-            using var resp = await Http.GetAsync(UpdateLogic.ReleasesApiUrl, ct).ConfigureAwait(false);
-            if (resp.IsSuccessStatusCode)
-            {
-                latest = UpdateLogic.PickLatest(UpdateLogic.ParseReleaseList(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false)), includeBeta);
-                if (latest == null) failure = "No Windows release has been published yet.";
-            }
-            else failure = $"GitHub answered {(int)resp.StatusCode} {resp.ReasonPhrase}.";
+            latest = UpdateLogic.PickLatest(await FetchCatalogAsync(ct).ConfigureAwait(false), includeBeta);
+            if (latest == null) failure = "No checksum-backed Windows release has been published yet.";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { failure = "Could not reach GitHub: " + (ex.InnerException?.Message ?? ex.Message); }
