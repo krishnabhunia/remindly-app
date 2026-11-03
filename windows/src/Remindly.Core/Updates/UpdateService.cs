@@ -65,7 +65,23 @@ public sealed class UpdateService
     /// <summary>Returns checksum-backed Windows releases for explicit version selection.</summary>
     public async Task<IReadOnlyList<ReleaseInfo>> ListVersionsAsync(CancellationToken ct)
     {
-        var releases = await FetchCatalogAsync(ct).ConfigureAwait(false);
+        List<ReleaseInfo> releases;
+        try
+        {
+            releases = await FetchCatalogAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            // A rate-limited GitHub API must not make the picker unusable while
+            // the public releases feed and checksum-backed downloads still work.
+            Log.Warn("Version-history API failed; falling back to Atom: " + ex.Message);
+            var atom = await Http.GetStringAsync(UpdateLogic.ReleasesAtomUrl, ct).ConfigureAwait(false);
+            releases = UpdateLogic.ParseAtomTags(atom)
+                .Select(UpdateLogic.ReleaseFromTag)
+                .OfType<ReleaseInfo>()
+                .ToList();
+        }
         return releases.Where(r => UpdateLogic.PickZip(r) is ReleaseAsset asset &&
                                    UpdateLogic.PickChecksum(r, asset) != null).ToArray();
     }
