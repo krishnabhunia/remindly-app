@@ -45,6 +45,15 @@ jobs:
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
+    - name: Restore Firebase configuration for Windows and Android sync
+      env:
+        GOOGLE_CONFIG: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      run: |
+        if (-not $env:GOOGLE_CONFIG) { throw 'GOOGLE_SERVICES_JSON is required for cross-device sync' }
+        $config = $env:GOOGLE_CONFIG
+        if (-not $config.TrimStart().StartsWith('{')) { $config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($config)) }
+        if (($config | ConvertFrom-Json).client.Count -eq 0) { throw 'Invalid Google services configuration' }
+        [IO.File]::WriteAllText((Join-Path $PWD 'app/google-services.json'), $config)
     - name: Desktop unit tests
       run: dotnet test tests/Remindly.Core.Tests/Remindly.Core.Tests.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION --logger "trx;LogFileName=unit-tests.trx"
       working-directory: windows

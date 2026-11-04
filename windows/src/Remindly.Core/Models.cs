@@ -280,6 +280,10 @@ public sealed record AppSettings
     public long UpdateLastCheck { get; init; }
     public bool StartWithWindows { get; init; }
     public bool CloseToTray { get; init; } = true;
+    /// <summary>Cloud sync is opt-in per Windows device; Android owns its own toggle.</summary>
+    public bool CloudSyncEnabled { get; init; }
+    /// <summary>The user confirmed the initial data backup and non-destructive merge.</summary>
+    public bool CloudSyncSetupComplete { get; init; }
     /// <summary>"TASK" or "SHOP" — the mode reopened at the next start.</summary>
     public string LastMode { get; init; } = "TASK";
     /// <summary>RECENT · AZ · CUSTOM (Lists screen sort chip).</summary>

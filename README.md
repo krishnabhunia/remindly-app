@@ -26,6 +26,7 @@ Three files are deliberately **not** in this repository. Add them locally (all a
 Then `gradle assembleRelease` (Gradle 8.7, compileSdk 34, JDK 17). The signing values and `MAPS_API_KEY` can also be given as environment variables (`REMINDLY_STOREFILE`, `REMINDLY_STOREPASSWORD`, `REMINDLY_KEYALIAS`, `REMINDLY_KEYPASSWORD`, `MAPS_API_KEY`) — that is how the Action builds.
 
 ## Docs
+- [Android ↔ Windows cloud sync setup and device checklist](docs/CLOUD-SYNC-WINDOWS.md) — Google Desktop OAuth, safe first merge and current Android catalogue limitations
 - `docs/RELEASE-NOTES.md` — what each version changed
 - `docs/BACKLOG.md` — the working log, queue and standing rules
 - `docs/DEVICE-CHECKLIST.md` — device verification sections per release

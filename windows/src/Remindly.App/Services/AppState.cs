@@ -329,4 +329,21 @@ public sealed class AppState
         copy.ExportedAt = Now;
         File.WriteAllText(path, Json.Serialize(copy));
     }
+
+    /// <summary>Merge cloud records without changing Windows-only or local sharing preferences.</summary>
+    public void ApplyCloud(RemindlyData incoming)
+    {
+        var before = Json.Serialize(Data);
+        var old = Data.Settings;
+        DataStore.MergeInto(Data, incoming, Now);
+        Data.Settings = Data.Settings with
+        {
+            ShareIncludeDone = old.ShareIncludeDone,
+            ShareIncludeQty = old.ShareIncludeQty,
+            ShareUrgentTag = old.ShareUrgentTag,
+            ShareBoughtTag = old.ShareBoughtTag,
+            ShareHeadingSuffix = old.ShareHeadingSuffix,
+        };
+        if (Json.Serialize(Data) != before) Commit();
+    }
 }

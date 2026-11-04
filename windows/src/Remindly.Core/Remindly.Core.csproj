@@ -9,6 +9,13 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Remindly.Core.Tests" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Firebase client configuration is injected from the existing GitHub Actions secret.
+       It is not committed to the repository. Local builds work without it, with sync disabled. -->
+  <ItemGroup Condition="Exists('../../../app/google-services.json')">
+    <EmbeddedResource Include="../../../app/google-services.json" LogicalName="google-services.json" />
   </ItemGroup>
 
 </Project>

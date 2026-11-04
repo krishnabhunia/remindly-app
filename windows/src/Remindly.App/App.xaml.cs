@@ -14,6 +14,7 @@ public partial class App : Application
     public static TrayService? Tray { get; private set; }
     public static ReminderService? Reminders { get; private set; }
     public static UpdateCoordinator? Updates { get; private set; }
+    public static CloudAccount? Cloud { get; private set; }
     public static bool IsSmokeTest { get; private set; }
     public static bool Exiting { get; private set; }
 
@@ -32,6 +33,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         AppState.Load();
+        if (!IsSmokeTest) Cloud = new CloudAccount();
         Theme.Apply(AppState.Current.Settings.Design, AppState.Current.Settings.LastMode);
 
         if (!IsSmokeTest)
@@ -92,6 +94,7 @@ public partial class App : Application
         try { AppState.Current?.Save(); } catch { }
         try { Reminders?.Stop(); } catch { }
         try { Updates?.Stop(); } catch { }
+        try { Cloud?.Dispose(); } catch { }
         try { Tray?.Dispose(); } catch { }
         foreach (Window w in Windows) { try { w.Close(); } catch { } }
         Shutdown(0);
