@@ -45,6 +45,7 @@ public partial class App : Application
 
         var main = new MainWindow();
         MainWindow = main;
+        if (!IsSmokeTest) Cloud?.StartExistingAccount();
 
         if (IsSmokeTest)
         {

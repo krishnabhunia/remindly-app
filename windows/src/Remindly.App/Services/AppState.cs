@@ -95,6 +95,20 @@ public sealed class AppState
 
     public void DeleteForever(Item item)
     {
+        if (Data.Settings.CloudSyncSetupComplete)
+        {
+            // A physical removal would be resurrected by the next Android snapshot.
+            // Keep a cloud tombstone but hide it from this device's Bin.
+            var now = Now;
+            int i = Data.Items.FindIndex(x => x.Id == item.Id);
+            if (i >= 0) Data.Items[i] = item with { DeletedAt = now, UpdatedAt = now };
+            Data.Settings = Data.Settings with
+            {
+                CloudHiddenDeletedItemIds = Data.Settings.CloudHiddenDeletedItemIds.Append(item.Id).Distinct().ToList()
+            };
+            Commit();
+            return;
+        }
         Data.Items.RemoveAll(i => i.Id == item.Id);
         Commit();
     }
@@ -123,7 +137,41 @@ public sealed class AppState
 
     public void DeleteCallForever(CallReminder c)
     {
+        if (Data.Settings.CloudSyncSetupComplete)
+        {
+            var now = Now;
+            Data.Calls = (Data.Calls ?? new()).Select(x => x.Id == c.Id
+                ? x with { DeletedAt = now, UpdatedAt = now } : x).ToList();
+            Data.Settings = Data.Settings with
+            {
+                CloudHiddenDeletedCallIds = Data.Settings.CloudHiddenDeletedCallIds.Append(c.Id).Distinct().ToList()
+            };
+            Commit();
+            return;
+        }
         Data.Calls?.RemoveAll(x => x.Id == c.Id);
+        Commit();
+    }
+
+    public void EmptyBin()
+    {
+        if (!Data.Settings.CloudSyncSetupComplete)
+        {
+            Data.Items.RemoveAll(x => x.DeletedAt != null);
+            Data.Calls?.RemoveAll(x => x.DeletedAt != null);
+            Commit();
+            return;
+        }
+        var now = Now;
+        var items = Data.Items.Where(x => x.DeletedAt != null).Select(x => x.Id).ToList();
+        var calls = (Data.Calls ?? new()).Where(x => x.DeletedAt != null).Select(x => x.Id).ToList();
+        Data.Items = Data.Items.Select(x => x.DeletedAt != null ? x with { UpdatedAt = now, DeletedAt = now } : x).ToList();
+        Data.Calls = (Data.Calls ?? new()).Select(x => x.DeletedAt != null ? x with { UpdatedAt = now, DeletedAt = now } : x).ToList();
+        Data.Settings = Data.Settings with
+        {
+            CloudHiddenDeletedItemIds = Data.Settings.CloudHiddenDeletedItemIds.Concat(items).Distinct().ToList(),
+            CloudHiddenDeletedCallIds = Data.Settings.CloudHiddenDeletedCallIds.Concat(calls).Distinct().ToList(),
+        };
         Commit();
     }
 
@@ -343,6 +391,13 @@ public sealed class AppState
             ShareUrgentTag = old.ShareUrgentTag,
             ShareBoughtTag = old.ShareBoughtTag,
             ShareHeadingSuffix = old.ShareHeadingSuffix,
+        };
+        Data.Settings = Data.Settings with
+        {
+            CloudHiddenDeletedItemIds = old.CloudHiddenDeletedItemIds
+                .Where(id => Data.Items.All(x => x.Id != id || x.DeletedAt != null)).ToList(),
+            CloudHiddenDeletedCallIds = old.CloudHiddenDeletedCallIds
+                .Where(id => (Data.Calls ?? new()).All(x => x.Id != id || x.DeletedAt != null)).ToList(),
         };
         if (Json.Serialize(Data) != before) Commit();
     }

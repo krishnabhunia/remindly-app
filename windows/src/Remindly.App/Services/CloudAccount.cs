@@ -37,8 +37,6 @@ public sealed class CloudAccount : IDisposable
                 apply: incoming => Application.Current.Dispatcher.Invoke(() => AppState.Current.ApplyCloud(incoming)));
             Auth.Changed += Notify;
             Sync.Changed += Notify;
-            Sync.SetEnabled(AppState.Current.Settings.CloudSyncEnabled &&
-                            AppState.Current.Settings.CloudSyncSetupComplete);
         }
         catch (Exception ex)
         {
@@ -52,6 +50,10 @@ public sealed class CloudAccount : IDisposable
         if (Application.Current.Dispatcher.CheckAccess()) Changed?.Invoke();
         else Application.Current.Dispatcher.BeginInvoke(() => Changed?.Invoke());
     }
+
+    /// <summary>Start persisted sync only after the main window has initialized its UI listeners.</summary>
+    public void StartExistingAccount() => Sync?.SetEnabled(
+        AppState.Current.Settings.CloudSyncEnabled && AppState.Current.Settings.CloudSyncSetupComplete);
 
     public void SaveDesktopClient(string json)
     {

@@ -23,6 +23,7 @@ public sealed class DesktopCloudSync : IDisposable
     private CancellationTokenSource? _loopCancel;
     private Task? _loop;
     private bool _disposed;
+    private string? _cachedUserId;
 
     public CloudStatus Status { get; private set; } = CloudStatus.SignedOut;
     public string? LastError { get; private set; }
@@ -41,7 +42,19 @@ public sealed class DesktopCloudSync : IDisposable
         _auth.Changed += OnAuthChanged;
     }
 
-    private void OnAuthChanged() => SetEnabled(Enabled);
+    private void OnAuthChanged()
+    {
+        // A new Google account must never reuse another account's cached Firestore data.
+        var uid = _auth.Uid;
+        if (_cachedUserId != uid)
+        {
+            _cache.Clear();
+            _watermarks.Clear();
+            _lastFullRead = DateTimeOffset.MinValue;
+            _cachedUserId = uid;
+        }
+        SetEnabled(Enabled);
+    }
 
     private void Report(CloudStatus state, int progress, string? error = null)
     {

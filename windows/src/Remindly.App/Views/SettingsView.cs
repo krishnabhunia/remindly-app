@@ -170,8 +170,10 @@ public sealed class SettingsView : ScrollViewer, IPage
         _root.Children.Add(Card(bk));
 
         // ── Bin ──
-        var binItems = state.Data.Items.Where(i => i.DeletedAt != null).OrderByDescending(i => i.DeletedAt).ToList();
-        var binCalls = (state.Data.Calls ?? new()).Where(c => c.DeletedAt != null).OrderByDescending(c => c.DeletedAt).ToList();
+        var binItems = state.Data.Items.Where(i => i.DeletedAt != null &&
+            !s.CloudHiddenDeletedItemIds.Contains(i.Id)).OrderByDescending(i => i.DeletedAt).ToList();
+        var binCalls = (state.Data.Calls ?? new()).Where(c => c.DeletedAt != null &&
+            !s.CloudHiddenDeletedCallIds.Contains(c.Id)).OrderByDescending(c => c.DeletedAt).ToList();
         var bin = Section("Bin", $"{binItems.Count + binCalls.Count} deleted record(s) · kept for 30 days");
         foreach (var i in binItems.Take(40))
         {
@@ -191,9 +193,7 @@ public sealed class SettingsView : ScrollViewer, IPage
             bin.Children.Add(Ui.Btn("Empty the Bin", () =>
             {
                 if (!Ui.Confirm("Delete everything in the Bin for good?")) return;
-                foreach (var i in binItems) state.Data.Items.RemoveAll(x => x.Id == i.Id);
-                state.Data.Calls?.RemoveAll(x => x.DeletedAt != null);
-                state.UpdateSettings(x => x);
+                state.EmptyBin();
             }, style: "Danger"));
         _root.Children.Add(Card(bin));
 

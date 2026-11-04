@@ -33,6 +33,10 @@ shows a configuration error and retains the local-only mode.
 - The `json/updatedAt/schemaVer` envelope matches Android schema 71.
   Unknown Android-only record fields are preserved on Windows writes.
 - Soft-delete `deletedAt` tombstones are included. The local file and initial backup remain.
+- When cloud sync has been set up, Windows **Delete forever** and **Empty the Bin** hide
+  entries in that PC's Bin while retaining deletion tombstones for Android. Android's
+  own retention and Bin behavior are unchanged; an individual permanently deleted
+  record can remain visible in the Android Bin until its normal expiry.
 - Synchronization runs at startup and approximately every 15 seconds while signed in,
   opted in and online. After the initial full snapshot it queries only documents whose
   `updatedAt` advanced, with a full reconciliation at most once a day. It can be
