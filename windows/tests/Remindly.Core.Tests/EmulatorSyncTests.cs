@@ -214,6 +214,62 @@ public class EmulatorSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_settings_edit_made_with_sync_off_survives_and_is_sent_on_the_phones_latest_document()
+    {
+        if (Host == null) return;
+        await PhoneWrites("settings", "app", PhoneSettings, 1000);
+        var (host, sync) = Boot();
+        sync.SetEnabled(true);
+        await WaitUntil(() => sync.InitialSnapshotDone, "first snapshot");
+        await WaitUntil(() => { bool ok = false; host.Do(() => ok = host.Data.Settings.ShopLists.Any(l => l.Id == 100)); return ok; }, "phone settings applied");
+
+        // Cloud sync off; the phone adds a Task list (stamped BEFORE the PC's edit); the PC then edits the sharing format.
+        sync.SetEnabled(false);
+        await PhoneWrites("settings", "app", PhoneSettings.Replace("[{\"id\":1,\"name\":\"Home\",\"updatedAt\":5}]", "[{\"id\":1,\"name\":\"Home\",\"updatedAt\":5},{\"id\":2,\"name\":\"Office\",\"updatedAt\":6}]").Replace("\"settingsUpdatedAt\":1000", "\"settingsUpdatedAt\":2000"), 2000);
+        host.Do(() =>
+        {
+            host.Data.Settings = host.Data.Settings with { ShareHeadingSuffix = " ~ offline edit" };
+            sync.LocalChanged();
+        });
+        Assert.True(sync.State.LocalSettingsStamp > 2000, "the offline edit is stamped");
+
+        // A restart before anything was sent: the acknowledgement must not have moved.
+        sync.Dispose();
+        var auth2 = new GoogleAuth(_cfg, Path.Combine(_dir, "secure2"));
+        auth2.UseTestSession(_uid, "test@example.com");
+        var sync2 = new FirestoreSync(host, auth2, _cfg, Path.Combine(_dir, "state")) { EmulatorEndpoint = Host, EmulatorToken = "owner", Log = (m, e) => _out.WriteLine($"[sync2] {m} {e?.Message}") };
+        sync2.SetEnabled(true);
+        await WaitUntil(() => sync2.InitialSnapshotDone, "second snapshot");
+
+        var s = await WaitFor(() => PhoneReads("settings", "app"), d => d.Json.Contains("offline edit"), "PC edit sent after restart");
+        var o = JsonNode.Parse(s.Json)!.AsObject();
+        Assert.Equal(2, o["taskLists"]!.AsArray().Count);   // built on the phone's newer document, not the stale base
+        host.Do(() => Assert.Equal(" ~ offline edit", host.Data.Settings.ShareHeadingSuffix));
+        sync2.Dispose();
+    }
+
+    [Fact]
+    public async Task Delete_forever_with_sync_off_is_sent_when_sync_is_on_again()
+    {
+        if (Host == null) return;
+        long del = Clock.NowMs() - 60_000;   // binned a minute ago (the Bin keeps 30 days)
+        await PhoneWrites("items", "8001", $$"""{"id":8001,"tab":"TASKS","title":"Binned","createdAt":1,"updatedAt":{{del}},"deletedAt":{{del}}}""", del);
+        var (host, sync) = Boot();
+        sync.SetEnabled(true);
+        await WaitUntil(() => sync.InitialSnapshotDone, "first snapshot");
+        await WaitUntil(() => { bool has = false; host.Do(() => has = host.Data.Items.Any(i => i.Id == 8001)); return has; }, "tombstone on the PC");
+        sync.SetEnabled(false);
+        host.Do(() => host.Data.Items.RemoveAll(i => i.Id == 8001));
+        sync.Forget(SyncContract.Items, 8001);
+        Assert.Contains("items/8001", sync.State.PendingDeletes);
+        Assert.NotNull(await PhoneReads("items", "8001"));
+        sync.SetEnabled(true);
+        await WaitUntil(() => PhoneReads("items", "8001").Result == null, "document deleted after re-enabling");
+        host.Do(() => Assert.DoesNotContain(host.Data.Items, i => i.Id == 8001));
+        sync.Dispose();
+    }
+
+    [Fact]
     public async Task An_older_schema_settings_document_is_not_adopted()
     {
         if (Host == null) return;

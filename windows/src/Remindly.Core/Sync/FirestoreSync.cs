@@ -40,10 +40,13 @@ public sealed class SyncLocalState
     /// <summary>The phone's last settings document — every key Windows does not own is sent back from it.</summary>
     public string? RemoteSettings { get; set; }
     public long RemoteSettingsStamp { get; set; }
-    /// <summary>Stamp of this PC's last settings write.</summary>
+    /// <summary>When this PC last changed a shared setting (recorded even while offline or with Cloud sync off) or last sent them.</summary>
     public long LocalSettingsStamp { get; set; }
-    /// <summary>SyncSettings.Hash of the shared keys the cloud holds; a different local hash means "send".</summary>
+    /// <summary>SyncSettings.Hash of the shared keys the cloud is known to hold — advanced only after a successful commit
+    /// (or after adopting the phone's document). A different local hash means "send".</summary>
     public string SyncedSettingsHash { get; set; } = "";
+    /// <summary>Last shared-settings hash seen on this PC, to notice local edits whenever they happen.</summary>
+    public string LastSeenLocalSettingsHash { get; set; } = "";
     /// <summary>"col/id" of records deleted for good on this PC: a tombstone of them from the cloud is not brought back.</summary>
     public HashSet<string> Forgotten { get; set; } = new();
     /// <summary>Documents to delete from Firestore (Delete forever / Empty the Bin while offline).</summary>
@@ -77,6 +80,9 @@ public sealed class FirestoreSync : IDisposable
     private bool _backedUp;
     private int _remoteDocs;
     private bool _sawSettings;
+    /// <summary>Firestore update time of the settings document the remote base came from: a settings write is
+    /// conditional on it, so a phone change that landed meanwhile is merged first instead of overwritten.</summary>
+    private Google.Protobuf.WellKnownTypes.Timestamp? _settingsUpdateTime;
 
     public string? EmulatorEndpoint { get; init; }
     public string? EmulatorToken { get; init; }
@@ -87,7 +93,17 @@ public sealed class FirestoreSync : IDisposable
     public string? ProblemDetail { get; private set; }
     public bool Enabled { get; private set; }
     public bool InitialSnapshotDone => _initialSnapshot;
-    public int PendingCount => _pending.Count + State.PendingDeletes.Count;
+    public int PendingCount => _pending.Count + State.PendingDeletes.Count + (SettingsDirty ? 1 : 0);
+
+    /// <summary>The shared settings on this PC differ from what the cloud is known to hold (and the phone has published a base).</summary>
+    private bool SettingsDirty
+    {
+        get
+        {
+            try { return State.RemoteSettings != null && SyncSettings.Hash(_host.Data.Settings) != State.SyncedSettingsHash; }
+            catch { return false; }
+        }
+    }
     public SyncLocalState State { get; private set; }
     public IReadOnlyDictionary<string, CollectionProgress> Progress => _progress;
     private readonly Dictionary<string, CollectionProgress> _progress = new();
@@ -243,6 +259,7 @@ public sealed class FirestoreSync : IDisposable
 
                 var buffer = new Dictionary<string, Dictionary<string, RemoteDoc>>();
                 RemoteDoc? settingsDoc = null;
+                Google.Protobuf.WellKnownTypes.Timestamp? settingsTime = null;
                 await foreach (var resp in stream.GetResponseStream().WithCancellation(ct))
                 {
                     switch (resp.ResponseTypeCase)
@@ -272,8 +289,10 @@ public sealed class FirestoreSync : IDisposable
                                     var batch = buffer.ToDictionary(kv => kv.Key, kv => kv.Value.Values.ToList());
                                     buffer.Clear();
                                     var s = settingsDoc;
+                                    var st = settingsTime;
                                     settingsDoc = null;
-                                    await ApplyBatchAsync(batch, s, firstSnapshot: allCurrent && !_initialSnapshot);
+                                    settingsTime = null;
+                                    await ApplyBatchAsync(batch, s, st);
                                 }
                                 if (allCurrent && !_initialSnapshot)
                                 {
@@ -297,7 +316,7 @@ public sealed class FirestoreSync : IDisposable
                             var upd = d.Fields.TryGetValue("updatedAt", out var uv) ? uv.IntegerValue : 0;
                             if (col == SyncContract.Settings)
                             {
-                                if (id == SyncContract.SettingsDoc) { settingsDoc = new RemoteDoc(id, json, ver, upd); _sawSettings = true; }
+                                if (id == SyncContract.SettingsDoc) { settingsDoc = new RemoteDoc(id, json, ver, upd); settingsTime = d.UpdateTime; _sawSettings = true; }
                                 break;
                             }
                             if (!_progress.ContainsKey(col)) break;
@@ -377,7 +396,7 @@ public sealed class FirestoreSync : IDisposable
 
     // ── remote → local ────────────────────────────────────────────────────────────────────
 
-    private Task ApplyBatchAsync(Dictionary<string, List<RemoteDoc>> batch, RemoteDoc? settings, bool firstSnapshot)
+    private Task ApplyBatchAsync(Dictionary<string, List<RemoteDoc>> batch, RemoteDoc? settings, Google.Protobuf.WellKnownTypes.Timestamp? settingsTime)
     {
         var done = new TaskCompletionSource();
         _host.Invoke(() =>
@@ -388,7 +407,7 @@ public sealed class FirestoreSync : IDisposable
                 var d = _host.Data;
                 var now = Clock.NowMs();
                 int changed = 0;
-                if (settings != null) changed += ApplySettings(d, settings) ? 1 : 0;
+                if (settings != null) changed += ApplySettings(d, settings, settingsTime) ? 1 : 0;
                 foreach (var col in SyncContract.Records)
                 {
                     if (!batch.TryGetValue(col, out var docs) || docs.Count == 0) continue;
@@ -402,9 +421,11 @@ public sealed class FirestoreSync : IDisposable
                 {
                     DataStore.Heal(d, now);
                     State.LastFromCloudAt = now;
-                    SaveState();
-                    _host.AppliedRemote();
                 }
+                // What the cloud brought is not a local edit.
+                lock (_stateGate) State.LastSeenLocalSettingsHash = SyncSettings.Hash(d.Settings);
+                SaveState();
+                if (changed > 0) _host.AppliedRemote();
             }
             catch (Exception ex) { Log?.Invoke("SYNC applying the cloud's changes failed", ex); }
             finally { done.TrySetResult(); Changed?.Invoke(); }
@@ -412,7 +433,7 @@ public sealed class FirestoreSync : IDisposable
         return done.Task;
     }
 
-    private bool ApplySettings(RemindlyData d, RemoteDoc doc)
+    private bool ApplySettings(RemindlyData d, RemoteDoc doc, Google.Protobuf.WellKnownTypes.Timestamp? updateTime)
     {
         if (doc.SchemaVer < SyncContract.SyncSchema)
         {
@@ -430,6 +451,7 @@ public sealed class FirestoreSync : IDisposable
             State.RemoteSettings = remote.ToJsonString(Json.Compact);
             State.RemoteSettingsStamp = Math.Max(State.RemoteSettingsStamp, stamp);
         }
+        _settingsUpdateTime = updateTime;
         _progress[SyncContract.Settings].Received = 1;
         var healed = DataStore.Heal(d, Clock.NowMs());
         if (adopt && !SyncSettings.LocalHasNewerLists(healed.Settings, remote)) State.SyncedSettingsHash = SyncSettings.Hash(healed.Settings);
@@ -460,6 +482,7 @@ public sealed class FirestoreSync : IDisposable
     /// <summary>Call on the owner thread after every save. Queues what is newer than the cloud and sends it.</summary>
     public void LocalChanged()
     {
+        TrackLocalSettings();
         if (!_initialSnapshot || !Enabled || !_auth.IsSignedIn) return;
         Scan();
         _ = FlushAsync(_cts?.Token ?? CancellationToken.None);
@@ -474,22 +497,26 @@ public sealed class FirestoreSync : IDisposable
             if (_pending.TryGetValue(rec.Key, out var queued) && queued.Stamp == rec.Stamp) continue;
             _pending[rec.Key] = new Pending(rec.Col, rec.Id, rec.Json(), rec.Stamp);
         }
-        var hash = SyncSettings.Hash(d.Settings);
-        if (State.RemoteSettings != null && hash != State.SyncedSettingsHash && JsonNode.Parse(State.RemoteSettings) is JsonObject baseDoc)
-        {
-            var stamp = Math.Max(Clock.NowMs(), Math.Max(State.RemoteSettingsStamp, State.LocalSettingsStamp) + 1);
-            var doc = SyncSettings.BuildPush(d.Settings, baseDoc, stamp)!;
-            _pending[SyncContract.Key(SyncContract.Settings, SyncContract.SettingsDoc)] = new Pending(SyncContract.Settings, SyncContract.SettingsDoc, doc.ToJsonString(Json.Compact), stamp);
-            lock (_stateGate)
-            {
-                State.LocalSettingsStamp = stamp;
-                State.SyncedSettingsHash = hash;
-                State.RemoteSettings = doc.ToJsonString(Json.Compact);
-                State.RemoteSettingsStamp = stamp;
-            }
-            SaveState();
-        }
         if (PendingCount > 0 && Phase == SyncPhase.Live) SetPhase(SyncPhase.Syncing);
+    }
+
+    /// <summary>
+    /// Notices a change of the shared settings made on this PC — whether or not sync is connected or switched
+    /// on — and stamps it, so a document the phone sent earlier never overwrites it later. The very first
+    /// observation (new install, new account) only records the hash: the phone's settings win the first sync.
+    /// </summary>
+    private void TrackLocalSettings()
+    {
+        string hash;
+        try { hash = SyncSettings.Hash(_host.Data.Settings); }
+        catch { return; }
+        if (hash == State.LastSeenLocalSettingsHash) return;
+        lock (_stateGate)
+        {
+            if (State.LastSeenLocalSettingsHash.Length > 0) State.LocalSettingsStamp = Math.Max(Clock.NowMs(), State.LocalSettingsStamp + 1);
+            State.LastSeenLocalSettingsHash = hash;
+        }
+        SaveState();
     }
 
     /// <summary>Delete forever / Empty the Bin: the document goes from the cloud too, and a tombstone of it is never brought back.</summary>
@@ -500,7 +527,8 @@ public sealed class FirestoreSync : IDisposable
         {
             State.Forgotten.Add(key);
             if (State.Forgotten.Count > 5000) State.Forgotten = State.Forgotten.Skip(State.Forgotten.Count - 5000).ToHashSet();
-            if (_auth.IsSignedIn && Enabled) State.PendingDeletes.Add(key);
+            // Queued for this account even with Cloud sync switched off; it is sent when sync is on again.
+            if (_auth.IsSignedIn) State.PendingDeletes.Add(key);
         }
         _pending.TryRemove(key, out _);
         SaveState();
@@ -515,15 +543,16 @@ public sealed class FirestoreSync : IDisposable
         try
         {
             _client ??= BuildClient();
-            while (PendingCount > 0 && !ct.IsCancellationRequested)
+            if (SettingsDirty) await SendSettingsAsync(ct);
+            while (_pending.Count + State.PendingDeletes.Count > 0 && !ct.IsCancellationRequested)
             {
                 // The cloud may have moved on while this waited: last writer wins in the queue too.
                 foreach (var w in _pending.Values.ToList())
-                    if (w.Col != SyncContract.Settings && _cloudStamp.TryGetValue(SyncContract.Key(w.Col, w.Id), out var cs) && cs > w.Stamp)
+                    if (_cloudStamp.TryGetValue(SyncContract.Key(w.Col, w.Id), out var cs) && cs > w.Stamp)
                         _pending.TryRemove(SyncContract.Key(w.Col, w.Id), out _);
                 List<string> deletes;
                 lock (_stateGate) deletes = State.PendingDeletes.Take(100).ToList();
-                var batch = _pending.Values.Where(w => w.Col == SyncContract.Settings).Concat(_pending.Values.Where(w => w.Col != SyncContract.Settings)).Take(200 - deletes.Count).ToList();
+                var batch = _pending.Values.Take(200 - deletes.Count).ToList();
                 if (batch.Count == 0 && deletes.Count == 0) break;
                 var req = new CommitRequest { Database = _cfg.Database };
                 foreach (var w in batch)
@@ -547,11 +576,8 @@ public sealed class FirestoreSync : IDisposable
                 {
                     var key = SyncContract.Key(w.Col, w.Id);
                     if (_pending.TryGetValue(key, out var cur) && cur.Stamp == w.Stamp) _pending.TryRemove(key, out _);
-                    if (w.Col != SyncContract.Settings)
-                    {
-                        _cloudStamp[key] = w.Stamp;
-                        if (_progress.TryGetValue(w.Col, out var p)) p.Sent++;
-                    }
+                    _cloudStamp[key] = w.Stamp;
+                    if (_progress.TryGetValue(w.Col, out var p)) p.Sent++;
                 }
                 lock (_stateGate)
                 {
@@ -582,6 +608,66 @@ public sealed class FirestoreSync : IDisposable
             SetPhase(SyncPhase.Offline);
         }
         finally { _flushGate.Release(); }
+    }
+
+    /// <summary>
+    /// Writes the settings document: rebuilt NOW from the phone's latest document (every key the PC does not own
+    /// comes from it) and committed only if that document is still the one in the cloud (update-time
+    /// precondition). If the phone changed it meanwhile, nothing is written; the listener brings the new one,
+    /// it is merged, and the next flush sends again. The PC's change is acknowledged only after the commit.
+    /// </summary>
+    private async Task SendSettingsAsync(CancellationToken ct)
+    {
+        string? baseJson;
+        long stamp;
+        lock (_stateGate)
+        {
+            baseJson = State.RemoteSettings;
+            stamp = Math.Max(Clock.NowMs(), Math.Max(State.RemoteSettingsStamp, State.LocalSettingsStamp) + 1);
+        }
+        var version = _settingsUpdateTime;
+        if (baseJson == null || version == null || JsonNode.Parse(baseJson) is not JsonObject baseDoc) return;
+        var settings = _host.Data.Settings;
+        var hash = SyncSettings.Hash(settings);
+        var json = SyncSettings.BuildPush(settings, baseDoc, stamp)!.ToJsonString(Json.Compact);
+        var req = new CommitRequest { Database = _cfg.Database };
+        req.Writes.Add(new Write
+        {
+            Update = new Document
+            {
+                Name = $"{Root}/{SyncContract.Settings}/{SyncContract.SettingsDoc}",
+                Fields =
+                {
+                    ["json"] = new Value { StringValue = json },
+                    ["updatedAt"] = new Value { IntegerValue = stamp },
+                    ["schemaVer"] = new Value { IntegerValue = SyncContract.SyncSchema },
+                },
+            },
+            CurrentDocument = new Precondition { UpdateTime = version },
+        });
+        try
+        {
+            if (Phase == SyncPhase.Live) SetPhase(SyncPhase.Syncing);
+            var resp = await _client!.CommitAsync(req, await CallSettingsAsync(ct));
+            lock (_stateGate)
+            {
+                State.SyncedSettingsHash = hash;
+                State.LocalSettingsStamp = Math.Max(State.LocalSettingsStamp, stamp);
+                State.RemoteSettings = json;
+                State.RemoteSettingsStamp = stamp;
+                State.LastSentAt = Clock.NowMs();
+            }
+            _settingsUpdateTime = resp.WriteResults.FirstOrDefault()?.UpdateTime ?? resp.CommitTime;
+            SaveState();
+            _progress[SyncContract.Settings].Sent++;
+            Changed?.Invoke();
+        }
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.FailedPrecondition or StatusCode.NotFound or StatusCode.Aborted)
+        {
+            // The phone's document changed since our base: wait for it, merge, then send again.
+            Log?.Invoke("SYNC the phone changed its preferences meanwhile — merging them before sending this PC's", null);
+            if (_settingsUpdateTime == version) _settingsUpdateTime = null;
+        }
     }
 
     // ── state file ──
