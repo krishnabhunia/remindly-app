@@ -96,6 +96,8 @@ public class CloudSyncTests
                 {
                     Content = new StringContent(r.Method == HttpMethod.Get
                         ? """{"documents":[{"name":"projects/test-project/databases/(default)/documents/users/android-uid/items/42","updateTime":"2026-11-04T06:00:00Z","fields":{"json":{"stringValue":"{\"id\":42}"},"updatedAt":{"integerValue":"120"},"schemaVer":{"integerValue":"71"}}}]}"""
+                        : r.Method == HttpMethod.Post
+                        ? """[{"document":{"name":"projects/test-project/databases/(default)/documents/users/android-uid/items/42","updateTime":"2026-11-04T06:00:01Z","fields":{"json":{"stringValue":"{\"id\":42}"},"updatedAt":{"integerValue":"130"},"schemaVer":{"integerValue":"71"}}}}]"""
                         : "{}"),
                 };
             }));
@@ -109,6 +111,11 @@ public class CloudSyncTests
             Assert.Equal("Bearer owner", calls[0].authorization);
             Assert.Contains("currentDocument.updateTime=", calls[1].uri);
             Assert.Contains("schemaVer", calls[1].body);
+            var updated = await transport.ReadChangedCollectionAsync("items", 120, CancellationToken.None);
+            Assert.Equal(130L, updated["42"].UpdatedAt);
+            Assert.Equal("POST", calls[2].method);
+            Assert.Contains("/users/android-uid:runQuery", calls[2].uri);
+            Assert.Contains("GREATER_THAN", calls[2].body);
         }
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
     }

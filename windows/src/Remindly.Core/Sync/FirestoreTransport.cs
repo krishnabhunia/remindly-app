@@ -81,6 +81,35 @@ public sealed class FirestoreTransport : IDisposable
         return documents;
     }
 
+    /// <summary>Indexed incremental read; avoids downloading every reminder on each sync cycle.</summary>
+    public async Task<Dictionary<string, CloudDocument>> ReadChangedCollectionAsync(
+        string collection, long afterStamp, CancellationToken ct)
+    {
+        var query = new JsonObject
+        {
+            ["structuredQuery"] = new JsonObject
+            {
+                ["from"] = new JsonArray(new JsonObject { ["collectionId"] = collection }),
+                ["where"] = new JsonObject
+                {
+                    ["fieldFilter"] = new JsonObject
+                    {
+                        ["field"] = new JsonObject { ["fieldPath"] = "updatedAt" },
+                        ["op"] = "GREATER_THAN",
+                        ["value"] = new JsonObject { ["integerValue"] = afterStamp.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                    },
+                },
+            },
+        };
+        using var response = await SendAsync(HttpMethod.Post, Root + ":runQuery", query, ct);
+        var result = new Dictionary<string, CloudDocument>();
+        if (response.StatusCode == HttpStatusCode.NotFound) return result;
+        if (JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) is JsonArray rows)
+            foreach (var row in rows)
+                if (Decode(row?["document"]) is { } doc) result[doc.Id] = doc;
+        return result;
+    }
+
     public async Task<CloudDocument?> ReadSettingsAsync(CancellationToken ct)
     {
         using var response = await SendAsync(HttpMethod.Get, Root + "/settings/app", null, ct);
@@ -89,7 +118,7 @@ public sealed class FirestoreTransport : IDisposable
     }
 
     /// <summary>Optimistic precondition: concurrent Android writes cannot be silently overwritten.</summary>
-    public async Task WriteAsync(string collection, CloudDocument desired, CloudDocument? previouslyRead, CancellationToken ct)
+    public async Task<CloudDocument> WriteAsync(string collection, CloudDocument desired, CloudDocument? previouslyRead, CancellationToken ct)
     {
         var url = Root + "/" + Uri.EscapeDataString(collection) + "/" + Uri.EscapeDataString(desired.Id);
         url += previouslyRead?.UpdateTime is { Length: > 0 } time
@@ -107,6 +136,7 @@ public sealed class FirestoreTransport : IDisposable
         using var response = await SendAsync(HttpMethod.Patch, url, payload, ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             throw new HttpRequestException("Firestore target document vanished during sync; retry will reconcile it.");
+        return Decode(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))) ?? desired;
     }
 
     public void Dispose() { if (_ownsHttp) _http.Dispose(); }

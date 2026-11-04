@@ -34,7 +34,9 @@ shows a configuration error and retains the local-only mode.
   Unknown Android-only record fields are preserved on Windows writes.
 - Soft-delete `deletedAt` tombstones are included. The local file and initial backup remain.
 - Synchronization runs at startup and approximately every 15 seconds while signed in,
-  opted in and online. It can be retried manually.
+  opted in and online. After the initial full snapshot it queries only documents whose
+  `updatedAt` advanced, with a full reconciliation at most once a day. It can be
+  retried manually. Firestore use is subject to the Firebase project's quotas/billing.
 - Current Android `Sync.kt` covers items (Tasks, Learn, Buy), calls, saved places, shops
   and the settings document (including shopping lists). Android's city, chain and product
   catalogues are still **local-only**; use manual backup/import for them until Android

@@ -17,6 +17,9 @@ public sealed class DesktopCloudSync : IDisposable
     private readonly Func<RemindlyData> _snapshot;
     private readonly Action<RemindlyData> _apply;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Dictionary<string, Dictionary<string, CloudDocument>> _cache = new();
+    private readonly Dictionary<string, long> _watermarks = new();
+    private DateTimeOffset _lastFullRead = DateTimeOffset.MinValue;
     private CancellationTokenSource? _loopCancel;
     private Task? _loop;
     private bool _disposed;
@@ -95,7 +98,16 @@ public sealed class DesktopCloudSync : IDisposable
             async Task Reconcile<T>(string collection, IEnumerable<T> local, Action<List<T>> accept,
                 Func<T, long> id, Func<T, long> stamp)
             {
-                var remote = await _transport.ReadCollectionAsync(collection, ct);
+                bool fullRead = !_cache.ContainsKey(collection) ||
+                                DateTimeOffset.UtcNow - _lastFullRead > TimeSpan.FromHours(24);
+                var changed = fullRead
+                    ? await _transport.ReadCollectionAsync(collection, ct)
+                    : await _transport.ReadChangedCollectionAsync(collection, _watermarks[collection], ct);
+                if (fullRead) _cache[collection] = changed;
+                else foreach (var d in changed) _cache[collection][d.Key] = d.Value;
+                var remote = _cache[collection];
+                _watermarks[collection] = remote.Count == 0 ? 0 :
+                    Math.Max(_watermarks.GetValueOrDefault(collection), remote.Values.Max(x => x.UpdatedAt));
                 var added = new List<T>();
                 var localById = local.ToDictionary(x => id(x).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 foreach (var d in remote.Values)
@@ -129,6 +141,7 @@ public sealed class DesktopCloudSync : IDisposable
                 x => x.Id, x => x.UpdatedAt > 0 ? x.UpdatedAt : x.CreatedAt);
             await Reconcile("places", before.Places, list => incoming.Places = list, x => x.Id, x => x.UpdatedAt);
             await Reconcile("shops", before.Shops, list => incoming.Shops = list, x => x.Id, x => x.UpdatedAt);
+            _lastFullRead = DateTimeOffset.UtcNow;
             Report(CloudStatus.Syncing, 55);
 
             // Android v2.11 currently keeps cities/chains/products local. Do NOT publish
@@ -166,7 +179,24 @@ public sealed class DesktopCloudSync : IDisposable
             foreach (var (collection, desired, old) in uploads)
             {
                 ct.ThrowIfCancellationRequested();
-                await _transport.WriteAsync(collection, desired, old, ct);
+                CloudDocument saved;
+                try { saved = await _transport.WriteAsync(collection, desired, old, ct); }
+                catch (HttpRequestException)
+                {
+                    // A simultaneous phone write can invalidate our updateTime precondition.
+                    // Force a new full read rather than repeatedly retrying the stale cache.
+                    if (collection != "settings")
+                    {
+                        _cache.Remove(collection);
+                        _watermarks.Remove(collection);
+                    }
+                    throw;
+                }
+                if (collection != "settings" && _cache.TryGetValue(collection, out var docs))
+                {
+                    docs[desired.Id] = saved;
+                    _watermarks[collection] = Math.Max(_watermarks[collection], desired.UpdatedAt);
+                }
             }
 
             LastSuccessAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
