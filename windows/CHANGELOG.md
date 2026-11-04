@@ -3,6 +3,26 @@
 Each `## X.Y.Z` section becomes the notes of GitHub Release `win-vX.Y.Z`. The CI refuses to build a
 version that has no section here.
 
+## 2.16.0 — Google sign-in and Cloud sync with the phone (04-Nov-2026)
+
+**Your PC and your phone now stay in step.** Settings → **Account and sync** → **Sign in with Google**
+with the same Gmail as the phone; from then on every change crosses both ways within seconds.
+
+| SrNo. | What | Detail |
+|---|---|---|
+| 1 | Account and sync card (top of Settings) | Signed out: Sign in with Google, what syncs and what stays on this PC. Signed in: name and email, **Cloud sync** switch, Status · Last change from phone · Last sent from this PC · Waiting to send, **Sync now**, **Sync log**, **Sign out** |
+| 2 | Sign-in | Opens your browser ("Finish signing in in your browser", with Open the page again / Cancel); the tab then says "You're signed in to Remindly". Remindly never sees your password |
+| 3 | First sync | "Bringing this PC and your phone together" — progress for each kind of record; nothing is deleted, the copy changed last wins, and a backup of this PC's data is saved first |
+| 4 | Chip at the top right, every design | Synced · Syncing · Offline (n waiting) · Sync paused — fix it · Not syncing; a click opens Account and sync |
+| 5 | When something blocks sync | Cards for "The cloud refused your data" (rules), "Nothing from your phone yet" and "Sign in again", each with Copy details |
+| 6 | Sign out | Keep the data on this PC (default) or remove it (a backup file is saved first) |
+| 7 | Safe with newer phone builds | Fields the PC does not show (Task lists, call nag times…) are kept untouched in every record and in the phone's preferences |
+| 8 | Delete forever / Empty the Bin | Also removes the record from the cloud, so it does not come back |
+| 9 | Undo | Undone changes now travel to the phone too (they get a fresh time stamp) |
+
+One-time setup (Google Desktop client + Firestore rules): [docs/WINDOWS-SIGN-IN-SETUP.md](../docs/WINDOWS-SIGN-IN-SETUP.md).
+Not synced by the PC: the phone's product–shop price links (the PC does not use them).
+
 ## Next minor release — four designs to choose from (09-Oct-2026)
 
 **Settings → Appearance** now offers four designs for the Windows app. Design **A** is the default; the

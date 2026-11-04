@@ -15,6 +15,10 @@ public sealed class AppState
 
     public RemindlyData Data { get; private set; }
     public event Action? Changed;
+    /// <summary>After every successful save (Cloud sync looks for what to send).</summary>
+    public event Action? Saved;
+    /// <summary>A record was deleted for good ("items"/"calls", id): Cloud sync removes it from the cloud too.</summary>
+    public event Action<string, long>? Forgotten;
 
     private AppState(RemindlyData d) => Data = d;
 
@@ -31,8 +35,13 @@ public sealed class AppState
     public void Save()
     {
         try { DataStore.Save(Data); }
-        catch (Exception ex) { Log.Error("Save failed", ex); }
+        catch (Exception ex) { Log.Error("Save failed", ex); return; }
+        try { Saved?.Invoke(); }
+        catch (Exception ex) { Log.Error("After-save handler failed", ex); }
     }
+
+    /// <summary>Cloud sync folded the phone's changes into Data: save and redraw.</summary>
+    public void ApplyRemote() => Commit();
 
     private void Commit()
     {
@@ -42,12 +51,30 @@ public sealed class AppState
 
     public Snapshot TakeSnapshot() => new(Data.Items.ToList(), (Data.Calls ?? new()).ToList(), Data.Settings);
 
+    /// <summary>
+    /// Undo. Every record the undo changes gets a fresh stamp, and a record added since the snapshot is
+    /// tombstoned rather than dropped, so Cloud sync carries the undo to the phone like any other edit.
+    /// </summary>
     public void Restore(Snapshot s)
     {
-        Data.Items = s.Items.ToList();
-        Data.Calls = s.Calls.ToList();
-        Data.Settings = s.Settings;
+        var now = Now;
+        Data.Items = Restamp(s.Items, Data.Items, i => i.Id, i => i with { UpdatedAt = now }, i => i with { DeletedAt = now, UpdatedAt = now });
+        Data.Calls = Restamp(s.Calls, Data.Calls ?? new(), c => c.Id, c => c with { UpdatedAt = now }, c => c with { DeletedAt = now, UpdatedAt = now });
+        var current = Data.Settings.ShopLists.ToDictionary(l => l.Id);
+        var lists = s.Settings.ShopLists.Select(l => current.TryGetValue(l.Id, out var c) && ReferenceEquals(c, l) ? l : l with { UpdatedAt = now }).ToList();
+        foreach (var added in Data.Settings.ShopLists.Where(l => s.Settings.ShopLists.All(x => x.Id != l.Id)))
+            lists.Add(added with { DeletedAt = now, UpdatedAt = now });
+        Data.Settings = ShopLists.MirrorIntoSettings(s.Settings with { ShopLists = lists });
         Commit();
+    }
+
+    private static List<T> Restamp<T>(List<T> snapshot, List<T> current, Func<T, long> id, Func<T, T> touch, Func<T, T> tombstone) where T : class
+    {
+        var now = current.GroupBy(id).ToDictionary(g => g.Key, g => g.Last());
+        var keep = new HashSet<long>(snapshot.Select(id));
+        var result = snapshot.Select(r => now.TryGetValue(id(r), out var c) && ReferenceEquals(c, r) ? r : touch(r)).ToList();
+        result.AddRange(current.Where(c => !keep.Contains(id(c))).Select(tombstone));
+        return result;
     }
 
     // ───────────────────────── items ─────────────────────────
@@ -96,7 +123,44 @@ public sealed class AppState
     public void DeleteForever(Item item)
     {
         Data.Items.RemoveAll(i => i.Id == item.Id);
+        Forgotten?.Invoke(Core.Sync.SyncContract.Items, item.Id);
         Commit();
+    }
+
+    /// <summary>Settings → Bin → Empty the Bin.</summary>
+    public void EmptyBin()
+    {
+        foreach (var i in Data.Items.Where(i => i.DeletedAt != null).ToList()) Forgotten?.Invoke(Core.Sync.SyncContract.Items, i.Id);
+        foreach (var c in (Data.Calls ?? new()).Where(c => c.DeletedAt != null).ToList()) Forgotten?.Invoke(Core.Sync.SyncContract.Calls, c.Id);
+        Data.Items.RemoveAll(i => i.DeletedAt != null);
+        Data.Calls?.RemoveAll(c => c.DeletedAt != null);
+        Commit();
+    }
+
+    /// <summary>
+    /// Sign out → "Remove it from this PC": a backup file first, then every record goes; this PC's own
+    /// settings (design, updates, tray, start-up) stay. Returns the backup's path.
+    /// </summary>
+    public string RemoveAllData()
+    {
+        AppPaths.Ensure();
+        var backup = Path.Combine(AppPaths.BackupDir, $"remindly-data-before-sign-out-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        File.WriteAllText(backup, Json.Serialize(Data));
+        var s = Data.Settings;
+        Data = new RemindlyData
+        {
+            Settings = new AppSettings
+            {
+                UpdateAutoCheck = s.UpdateAutoCheck, UpdateBeta = s.UpdateBeta, UpdatePinnedVersion = s.UpdatePinnedVersion,
+                UpdatePendingPinnedVersion = s.UpdatePendingPinnedVersion, UpdateLastCheck = s.UpdateLastCheck,
+                StartWithWindows = s.StartWithWindows, CloseToTray = s.CloseToTray, LastMode = s.LastMode,
+                SnoozeMinutes = s.SnoozeMinutes, DefaultDueHour = s.DefaultDueHour, DeviceTag = s.DeviceTag,
+                Design = s.Design, CloudSync = s.CloudSync,
+            },
+        };
+        Data = DataStore.Heal(Data, Now);
+        Commit();
+        return backup;
     }
 
     // ───────────────────────── calls ─────────────────────────
@@ -124,6 +188,7 @@ public sealed class AppState
     public void DeleteCallForever(CallReminder c)
     {
         Data.Calls?.RemoveAll(x => x.Id == c.Id);
+        Forgotten?.Invoke(Core.Sync.SyncContract.Calls, c.Id);
         Commit();
     }
 

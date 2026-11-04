@@ -1,0 +1,53 @@
+// Remindly — Firestore security rules — Android 2.9+ and Remindly for Windows 2.16+ (same rules, unchanged since 16-Sep-2026)
+//
+// ONE-TIME CONSOLE STEP (Krishna): Firebase console → Firestore Database → Rules → paste → Publish.
+//
+// Option A (recommended): replace the whole rules document with the block below. It covers every
+// collection the Android app (2.9+) and Remindly for Windows (2.16+) use:
+//   /users/{uid}/items|calls|places|shops            (since v1.35)
+//   /users/{uid}/settings/app                        (since v1.35)
+//   /users/{uid}/cities|chains|products|productlinks (NEW in v2.9 — N29)
+//   /users/{uid}/blocked/{emailKey}                  (since v1.87 — list sharing)
+//   /shares/{shareId}                                (since v1.87 — list sharing)
+//
+// Option B: if your current rules list collections one by one under /users/{uid}, paste ONLY the
+// four `match` lines marked "N29" into that block.
+//
+// Both devices sign in with the SAME Google account, so request.auth.uid is the same uid on the
+// phone and on the PC — no per-device rule is needed.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    // ── per-user mirror (items, calls, places, shops, settings, blocked senders) ──
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /items/{doc}        { allow read, write: if isOwner(uid); }
+      match /calls/{doc}        { allow read, write: if isOwner(uid); }
+      match /places/{doc}       { allow read, write: if isOwner(uid); }
+      match /shops/{doc}        { allow read, write: if isOwner(uid); }
+      match /settings/{doc}     { allow read, write: if isOwner(uid); }
+      match /blocked/{doc}      { allow read, write: if isOwner(uid); }
+
+      // N29 — v2.9 shop-mode catalogue (also written by Remindly for Windows)
+      match /cities/{doc}       { allow read, write: if isOwner(uid); }   // N29
+      match /chains/{doc}       { allow read, write: if isOwner(uid); }   // N29
+      match /products/{doc}     { allow read, write: if isOwner(uid); }   // N29
+      match /productlinks/{doc} { allow read, write: if isOwner(uid); }   // N29
+    }
+
+    // ── list sharing (v1.87 N17): sender writes, recipient (by email) reads/accepts/declines ──
+    match /shares/{shareId} {
+      allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid;
+      allow read: if signedIn() && (resource.data.fromUid == request.auth.uid
+                                    || resource.data.toEmail == request.auth.token.email.lower());
+      allow update, delete: if signedIn() && (resource.data.fromUid == request.auth.uid
+                                              || resource.data.toEmail == request.auth.token.email.lower());
+    }
+  }
+}

@@ -45,6 +45,22 @@ jobs:
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
+    - name: Restore Windows sign-in configuration
+      env:
+        GOOGLE_CONFIG: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        WINDOWS_OAUTH_CLIENT: ${{ secrets.WINDOWS_OAUTH_CLIENT_JSON }}
+      run: |
+        # Embedded into Remindly.exe for Google sign-in + Cloud sync (2.16). Never committed; removed after the build.
+        # Without them the build still passes and the app says sign-in is not set up in this copy.
+        $dir = 'windows/src/Remindly.Core/Sync'
+        foreach ($pair in @(@('GOOGLE_CONFIG', 'google-services.json'), @('WINDOWS_OAUTH_CLIENT', 'oauth-desktop-client.json'))) {
+          $value = [Environment]::GetEnvironmentVariable($pair[0])
+          if (-not $value) { Write-Host "$($pair[1]): not provided"; continue }
+          if (-not $value.TrimStart().StartsWith('{')) { $value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($value)) }
+          $null = $value | ConvertFrom-Json
+          [IO.File]::WriteAllText((Join-Path $dir $pair[1]), $value)
+          Write-Host "$($pair[1]): embedded"
+        }
     - name: Desktop unit tests
       run: dotnet test tests/Remindly.Core.Tests/Remindly.Core.Tests.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION --logger "trx;LogFileName=unit-tests.trx"
       working-directory: windows
@@ -171,7 +187,7 @@ jobs:
         BUILD_CODE: ${{ steps.plan.outputs.code }}
     - name: Remove private build configuration
       if: always()
-      run: Remove-Item -LiteralPath $env:REMINDLY_STOREFILE, 'app/google-services.json' -Force -ErrorAction SilentlyContinue
+      run: Remove-Item -LiteralPath $env:REMINDLY_STOREFILE, 'app/google-services.json', 'windows/src/Remindly.Core/Sync/google-services.json', 'windows/src/Remindly.Core/Sync/oauth-desktop-client.json' -Force -ErrorAction SilentlyContinue
       env:
         EXPECTED_CERT_SHA1: a3b944dae20ca23f52d134366422926dff645c55
         MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}

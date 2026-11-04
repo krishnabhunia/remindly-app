@@ -32,3 +32,6 @@ TestResults/
 .vs/
 # windows/build/ holds scripts, not build output
 !windows/build/
+# Windows sign-in configuration (written by CI from secrets, embedded into the exe)
+windows/src/Remindly.Core/Sync/google-services.json
+windows/src/Remindly.Core/Sync/oauth-desktop-client.json

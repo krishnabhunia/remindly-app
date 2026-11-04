@@ -8,7 +8,7 @@ using Remindly.Core.Updates;
 
 namespace Remindly.App.Views;
 
-/// <summary>Settings: Updates (Auto update), General, Sharing a list, Backup &amp; Android import, Bin, About.</summary>
+/// <summary>Settings: Account and sync, Appearance, Updates (Auto update), General, Sharing a list, Backup &amp; Android import, Bin, About.</summary>
 public sealed class SettingsView : ScrollViewer, IPage
 {
     private readonly StackPanel _root = new() { MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Left };
@@ -44,6 +44,9 @@ public sealed class SettingsView : ScrollViewer, IPage
         var s = state.Settings;
         _root.Children.Clear();
         _root.Children.Add(Ui.H1("Settings"));
+
+        // ── Account and sync (2.16): Google sign-in + Cloud sync with the phone ──
+        _root.Children.Add(new AccountCard());
 
         // ── Appearance (Windows; macOS when its app exists — never on Android) ──
         var look = Section("Appearance", "Pick how Remindly looks on this PC. Only this PC changes: your phone keeps its own look and your data stays the same.");
@@ -135,9 +138,7 @@ public sealed class SettingsView : ScrollViewer, IPage
             bin.Children.Add(Ui.Btn("Empty the Bin", () =>
             {
                 if (!Ui.Confirm("Delete everything in the Bin for good?")) return;
-                foreach (var i in binItems) state.Data.Items.RemoveAll(x => x.Id == i.Id);
-                state.Data.Calls?.RemoveAll(x => x.DeletedAt != null);
-                state.UpdateSettings(x => x);
+                state.EmptyBin();
             }, style: "Danger"));
         _root.Children.Add(Card(bin));
 
@@ -146,7 +147,7 @@ public sealed class SettingsView : ScrollViewer, IPage
         about.Children.Add(Ui.Text($"Remindly {v} for Windows", 15, FontWeights.SemiBold));
         about.Children.Add(Ui.Sub($"{InstallInfo.ModeLabel} copy · {InstallInfo.ExePath}"));
         about.Children.Add(Ui.Sub("The Windows companion of the Remindly Android app: Tasks · Learn · Calls ⇄ Buy (lists) · Shops · Products. " +
-            "Geofenced shop arrivals, call-log detection, maps and cloud sync stay on the phone."));
+            "Geofenced shop arrivals, call-log detection and maps stay on the phone; everything else syncs through Account and sync."));
         about.Children.Add(Ui.Row(Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
         _root.Children.Add(Card(about));
     }

@@ -28,11 +28,16 @@ public partial class MainWindow : Window
     private bool _shop;
     private IShell? _shell;
     private Button? _updateButton;
+    private SyncChip? _syncChip;
+    private readonly DispatcherTimer _chipTick = new() { Interval = TimeSpan.FromSeconds(30) };
 
     /// <summary>The page area; each design's shell places it.</summary>
     public ContentControl Page { get; } = new() { Focusable = false };
 
-    /// <summary>Holds the top-right "Update to vx.y.z" button; collapsed unless GitHub offered a newer eligible version.</summary>
+    /// <summary>
+    /// The top right of every design: the Cloud sync chip (always) and the "Update to vx.y.z" button
+    /// (only when GitHub offered a newer eligible version).
+    /// </summary>
     public Border UpdateSlot { get; } = new() { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
 
     public MainWindow()
@@ -49,6 +54,9 @@ public partial class MainWindow : Window
             _shell?.Sync();
         };
         if (App.Updates != null) App.Updates.Changed += () => Dispatcher.BeginInvoke(RefreshUpdateBanner);
+        if (App.Sync != null) App.Sync.Changed += () => _syncChip?.Refresh();
+        _chipTick.Tick += (_, _) => _syncChip?.Refresh();
+        _chipTick.Start();
         Loaded += (_, _) => RefreshUpdateBanner();
         PreviewKeyDown += OnShortcut;
         _shop = AppState.Current.Settings.LastMode == "SHOP";
@@ -114,7 +122,9 @@ public partial class MainWindow : Window
         Detach(Page);
         Detach(UpdateSlot);
         _updateButton = BuildUpdateButton();
-        UpdateSlot.Child = _updateButton;
+        _syncChip = new SyncChip();
+        UpdateSlot.Child = Ui.Row(_syncChip, _updateButton);
+        UpdateSlot.Visibility = Visibility.Visible;
         _shell = Shells.Create(Theme.Design, this);
         ShellHost.Content = _shell.Root;
         _shell.Sync();
@@ -320,15 +330,19 @@ public partial class MainWindow : Window
         if (_updateButton != null && u?.Last is { Status: UpdateStatus.UpdateAvailable, Release: ReleaseInfo r } &&
             UpdateLogic.IsNewer(UpdateService.CurrentDisplayVersion, r))
         {
-            UpdateSlot.Visibility = Visibility.Visible;
+            _updateButton.Visibility = Visibility.Visible;
             // The label stays "Update to vx.y.z" (AGENTS.md); download progress goes in the tooltip.
             _updateButton.Content = Ui.Row(Ui.Glyph(Glyphs.Download, 14, _updateButton.Foreground),
                 Ui.Text($"  Update to v{r.DisplayVersion}", 13.5, FontWeights.SemiBold, _updateButton.Foreground, wrap: false));
             _updateButton.ToolTip = u.Progress >= 0 ? $"Downloading Remindly {r.DisplayVersion}… {u.Progress}%" : $"Remindly {r.DisplayVersion} is available";
             _updateButton.IsEnabled = !u.Busy;
         }
-        else UpdateSlot.Visibility = Visibility.Collapsed;
+        else if (_updateButton != null) _updateButton.Visibility = Visibility.Collapsed;
+        _syncChip?.Refresh();
     }
+
+    /// <summary>The sync chip and the problem cards open Settings (Account and sync is its first card).</summary>
+    public void OpenSettings() => Go(SettingsTab);
 
     private async void UpdateBannerButton_Click(object sender, RoutedEventArgs e)
     {

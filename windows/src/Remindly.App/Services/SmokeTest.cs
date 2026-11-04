@@ -127,6 +127,15 @@ public static class SmokeTest
         await ShowAndCapture(() => ShopEditor.OpenFor(state.Shops.First()), "editor-shop");
         await ShowAndCapture(() => ProductEditor.OpenFor(state.Products.First()), "editor-product");
 
+        // 2.16 sign-in and Cloud sync: the top-right chip, Settings → Account and sync, and the three dialogs
+        Check(main.UpdateSlot.Visibility == Visibility.Visible, "sync chip shown at the top right");
+        main.Go(main.AllTabs.Last());
+        await Idle();
+        Capture(main, "settings-account-and-sync");
+        await ShowAndCapture(() => new SignInWindow(null).Open(), "sync-sign-in");
+        await ShowAndCapture(() => new FirstSyncWindow(null).Open(), "sync-first-sync");
+        await ShowAndCapture(() => new SignOutWindow(null).Open(), "sync-sign-out");
+
         // The reminder card
         var alert = new AlertWindow(new DueAlert(AlertKind.ITEM, gym.Id, state.Now, "Gym", "Tasks · leg day", "smoke", Ring: true), 0);
         alert.Show();

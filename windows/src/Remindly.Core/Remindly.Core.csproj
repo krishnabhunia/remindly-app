@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Pure logic + storage + update checks. Cross-platform TFM so the unit tests run on any OS. -->
+    <!-- Pure logic + storage + update checks + cloud sync. Cross-platform TFM so the unit tests run on any OS. -->
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Remindly.Core</RootNamespace>
     <AssemblyName>Remindly.Core</AssemblyName>
@@ -9,6 +9,20 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Remindly.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 2.16 Cloud sync: Firestore Listen/Commit over gRPC (the same calls the Android SDK makes) and DPAPI for the sign-in tokens. -->
+    <PackageReference Include="Google.Cloud.Firestore.V1" Version="4.4.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Sign-in configuration, written here by CI from repository secrets right before the build and deleted after it
+       (never committed — see .gitignore). A build without them runs normally and says sign-in is not set up. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Sync\google-services.json" Condition="Exists('Sync\google-services.json')" LogicalName="Remindly.google-services.json" />
+    <EmbeddedResource Include="..\..\..\docs\FIRESTORE-RULES.rules" LogicalName="Remindly.firestore.rules" />
+    <EmbeddedResource Include="Sync\oauth-desktop-client.json" Condition="Exists('Sync\oauth-desktop-client.json')" LogicalName="Remindly.oauth-desktop-client.json" />
   </ItemGroup>
 
 </Project>

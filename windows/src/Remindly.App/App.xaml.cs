@@ -14,6 +14,8 @@ public partial class App : Application
     public static TrayService? Tray { get; private set; }
     public static ReminderService? Reminders { get; private set; }
     public static UpdateCoordinator? Updates { get; private set; }
+    /// <summary>Google sign-in + Cloud sync (null in the smoke test).</summary>
+    public static SyncService? Sync { get; private set; }
     public static bool IsSmokeTest { get; private set; }
     public static bool Exiting { get; private set; }
 
@@ -39,6 +41,8 @@ public partial class App : Application
             Tray = new TrayService();
             Reminders = new ReminderService();
             Updates = new UpdateCoordinator();
+            try { Sync = new SyncService(); }
+            catch (Exception ex) { Log.Error("SYNC could not start — Remindly runs without Cloud sync", ex); }
         }
 
         var main = new MainWindow();
@@ -70,6 +74,8 @@ public partial class App : Application
 
         Reminders!.Start();
         Updates!.Start();
+        try { Sync?.Start(); }
+        catch (Exception ex) { Log.Error("SYNC start failed", ex); }
     }
 
     public void ShowMain()
@@ -92,6 +98,7 @@ public partial class App : Application
         try { AppState.Current?.Save(); } catch { }
         try { Reminders?.Stop(); } catch { }
         try { Updates?.Stop(); } catch { }
+        try { Sync?.Dispose(); } catch { }
         try { Tray?.Dispose(); } catch { }
         foreach (Window w in Windows) { try { w.Close(); } catch { } }
         Shutdown(0);

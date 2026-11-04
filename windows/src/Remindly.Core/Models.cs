@@ -1,8 +1,16 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Remindly.Core;
 
 // The Windows data model mirrors the Android app's records FIELD FOR FIELD (same names, same
 // meaning, epoch-millisecond times, enum names as strings). That keeps one JSON shape for both:
 // an Android backup ("remindly-data-*.json") loads straight into the Windows store.
+//
+// 2.16 (Cloud sync): every record also carries [JsonExtensionData] Extra — the fields a newer
+// Android build writes that Windows does not model (Call nagAt / savedGroups, Task lists, …).
+// They are kept through load, edit, save and sync, so a change made on the PC never wipes them
+// on the phone.
 
 public enum Tab { TASKS, SHOP, LEARN }
 
@@ -35,6 +43,8 @@ public static class PriorityNames
 /// <summary>A recorded purchase (last 12 kept per item).</summary>
 public sealed record PricePoint
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long At { get; init; }
     public double Price { get; init; }
     public string Shop { get; init; } = "";
@@ -48,6 +58,8 @@ public sealed record PricePoint
 /// <summary>A Tasks / Learn / Buy card (Android: data class Item).</summary>
 public sealed record Item
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public Tab Tab { get; init; }
     public string Title { get; init; } = "";
@@ -106,6 +118,8 @@ public sealed record Item
 /// <summary>A call-back reminder (Calls tab).</summary>
 public sealed record CallReminder
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Number { get; init; } = "";
     public string? Name { get; init; }
@@ -138,7 +152,8 @@ public sealed record CallReminder
     public bool Done { get; init; }
     public long? DoneAt { get; init; }
 
-    public string Display => CallText.DisplayOf(FirstName, LastName, Name, Number);
+    // Not a stored field. Its JSON name is moved out of the way so the phone's own "display" field lands in Extra and travels back.
+    [JsonIgnore, JsonPropertyName("-windowsDisplay")] public string Display => CallText.DisplayOf(FirstName, LastName, Name, Number);
 }
 
 public static class CallText
@@ -172,6 +187,8 @@ public static class CallText
 /// <summary>A geofenced place (Android only — kept so an imported backup is not lossy).</summary>
 public sealed record GeoPlace
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public double Lat { get; init; }
@@ -188,6 +205,8 @@ public sealed record GeoPlace
 /// <summary>A registered shop (Shops tab). The geofence fields are kept for Android parity.</summary>
 public sealed record Shop
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public string? Area { get; init; }
@@ -205,6 +224,8 @@ public sealed record Shop
 
 public sealed record City
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public long UpdatedAt { get; init; }
@@ -213,6 +234,8 @@ public sealed record City
 
 public sealed record Chain
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public long UpdatedAt { get; init; }
@@ -222,6 +245,8 @@ public sealed record Chain
 /// <summary>A catalogued product the Buy lists can reference (Products tab).</summary>
 public sealed record Product
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public string? Category { get; init; }
@@ -234,6 +259,8 @@ public sealed record Product
 /// <summary>2.11 (N48): a Buy list (Groceries, Monthly stock, a party…).</summary>
 public sealed record ShopList
 {
+    /// <summary>Fields Windows does not model (written by a newer Android build); kept untouched.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public string? Icon { get; init; }
@@ -292,6 +319,8 @@ public sealed record AppSettings
     public int DeviceTag { get; init; }
     /// <summary>Desktop look chosen in Settings → Appearance: FLUENT (A, default) · BOARD · COMMAND · HUB. This PC only.</summary>
     public string Design { get; init; } = Designs.Default;
+    /// <summary>2.16: the "Cloud sync" switch of THIS PC (Settings → Account and sync). Never sent to the phone.</summary>
+    public bool CloudSync { get; init; } = true;
 }
 
 /// <summary>Everything Remindly for Windows stores, in one JSON document.</summary>

@@ -47,8 +47,18 @@ Four looks for the same app; switching is instant and only changes this PC (the 
 Shortcuts in every design: Ctrl+1…4 menu entries · Ctrl+M Task ⇄ Shop · Ctrl+N new with details (Tasks / Learn).
 Fonts for B, C and D are embedded under the SIL Open Font License 1.1 (`src/Remindly.App/Assets/Fonts/OFL-*.txt`).
 
-Stays on the phone: geofenced arrivals, call-log detection, maps, widgets, cloud sync. Bring the phone's data
-over with Settings → Backup → **Import a backup** (the Android `remindly-data-*.json`).
+## Google sign-in and Cloud sync (2.16.0)
+
+**Settings → Account and sync → Sign in with Google** (the same Gmail as the phone) and the PC syncs
+live with the Android app through Firestore: tasks, Learn, calls, Buy items and lists, shops, cities,
+chains, products and the sharing format — both ways, a few seconds after each change. The chip at the
+top right of every design shows Synced · Syncing · Offline · Sync paused · Not syncing. Changes made
+offline are sent when the PC is back online; nothing is deleted by a merge (the copy changed last
+wins) and a backup is taken before the first sync. One-time console steps and troubleshooting:
+[docs/WINDOWS-SIGN-IN-SETUP.md](../docs/WINDOWS-SIGN-IN-SETUP.md).
+
+Stays on the phone: geofenced arrivals, call-log detection, maps, widgets. A one-off copy without
+signing in still works: Settings → Backup → **Import a backup** (the Android `remindly-data-*.json`).
 
 ## Updates
 

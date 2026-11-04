@@ -63,6 +63,9 @@ public static class Json
         AllowTrailingCommas = true,
     };
 
+    /// <summary>The same shape on one line — the cloud sync wire format (the "json" field of a Firestore document).</summary>
+    public static readonly JsonSerializerOptions Compact = new(Options) { WriteIndented = false };
+
     public static string Serialize(RemindlyData d) => JsonSerializer.Serialize(d, Options);
 
     public static RemindlyData? Deserialize(string json) => JsonSerializer.Deserialize<RemindlyData>(json, Options);
