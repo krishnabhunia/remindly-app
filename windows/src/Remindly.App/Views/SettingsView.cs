@@ -34,8 +34,16 @@ public sealed class SettingsView : ScrollViewer, IPage
             RefreshUpdates();
         });
         // Only while shown: a design switch replaces this page, and the old one must not keep listening.
-        Loaded += (_, _) => { if (App.Updates != null) App.Updates.Changed += OnUpdatesChanged; };
-        Unloaded += (_, _) => { if (App.Updates != null) App.Updates.Changed -= OnUpdatesChanged; };
+        Loaded += (_, _) =>
+        {
+            if (App.Updates != null) App.Updates.Changed += OnUpdatesChanged;
+            if (App.Cloud != null) App.Cloud.Changed += OnCloudChanged;
+        };
+        Unloaded += (_, _) =>
+        {
+            if (App.Updates != null) App.Updates.Changed -= OnUpdatesChanged;
+            if (App.Cloud != null) App.Cloud.Changed -= OnCloudChanged;
+        };
     }
 
     public void Refresh()
@@ -44,6 +52,54 @@ public sealed class SettingsView : ScrollViewer, IPage
         var s = state.Settings;
         _root.Children.Clear();
         _root.Children.Add(Ui.H1("Settings"));
+
+        // ── Approved A+B+C: account entry, sync health and guided first-time setup ──
+        var cloud = App.Cloud;
+        var sync = Section("Account & Sync", "Keep Android and Windows on the same Google account, with safe two-way Firestore synchronization.");
+        if (cloud?.ConfigurationError != null)
+            sync.Children.Add(Ui.Sub(cloud.ConfigurationError));
+        else if (cloud == null)
+            sync.Children.Add(Ui.Sub("Cloud synchronization is not available in UI smoke-test mode."));
+        else
+        {
+            sync.Children.Add(Ui.Text(cloud.SignedIn
+                ? $"Google account: {cloud.Email}"
+                : "Not connected to Google", 15, FontWeights.SemiBold));
+            var current = cloud.Sync;
+            sync.Children.Add(Ui.Sub($"Status: {current?.Status ?? Remindly.Core.Sync.CloudStatus.SignedOut} · " +
+                $"Last successful sync: {(current?.LastSuccessAt > 0 ? Clock.ToLocal(current.LastSuccessAt).ToString("dd MMM yyyy, HH:mm") : "Never")}"));
+            if (!string.IsNullOrEmpty(current?.LastError)) sync.Children.Add(Ui.Sub("Sync error: " + current.LastError));
+            if (current?.Status == Remindly.Core.Sync.CloudStatus.Syncing)
+                sync.Children.Add(new ProgressBar { Value = current.Progress, Maximum = 100, Height = 6, Margin = new Thickness(0, 8, 0, 8) });
+            sync.Children.Add(Ui.Row(
+                Ui.Primary(cloud.SignedIn ? "Account / Setup" : "Sign in with Google", OpenCloudWizard),
+                Ui.Btn("Sync now", async () =>
+                {
+                    try { await cloud.SyncNowAsync(); }
+                    catch (Exception ex) { Ui.Info("Sync could not complete: " + ex.Message); }
+                }),
+                Ui.Btn("Sign out", () =>
+                {
+                    if (Ui.Confirm("Sign out of Google on this PC? Your local Remindly data and backups will be kept."))
+                        cloud.SignOut();
+                })));
+            sync.Children.Add(Ui.Setting("Automatic two-way sync on this PC", s.CloudSyncEnabled, enabled =>
+            {
+                try
+                {
+                    if (!enabled) cloud.Pause();
+                    else if (!s.CloudSyncSetupComplete) OpenCloudWizard();
+                    else cloud.Resume();
+                }
+                catch (Exception ex) { Ui.Info(ex.Message); }
+                Refresh();
+            }, "Android also needs Google Account → Cloud sync (beta) enabled."));
+            sync.Children.Add(Ui.Sub("Syncs: Tasks, Learn, Calls, Buy items/lists, Shops and saved places. " +
+                "Cities, chains and product catalogue are currently local on Android; they remain available through manual backup until Android cloud support is added."));
+            sync.Children.Add(Ui.Sub("Conflict policy: newer updatedAt wins per record; deletedAt tombstones are retained. " +
+                "The first connection creates a recoverable local backup before uploading."));
+        }
+        _root.Children.Add(Card(sync));
 
         // ── Appearance (Windows; macOS when its app exists — never on Android) ──
         var look = Section("Appearance", "Pick how Remindly looks on this PC. Only this PC changes: your phone keeps its own look and your data stays the same.");
@@ -114,8 +170,10 @@ public sealed class SettingsView : ScrollViewer, IPage
         _root.Children.Add(Card(bk));
 
         // ── Bin ──
-        var binItems = state.Data.Items.Where(i => i.DeletedAt != null).OrderByDescending(i => i.DeletedAt).ToList();
-        var binCalls = (state.Data.Calls ?? new()).Where(c => c.DeletedAt != null).OrderByDescending(c => c.DeletedAt).ToList();
+        var binItems = state.Data.Items.Where(i => i.DeletedAt != null &&
+            !s.CloudHiddenDeletedItemIds.Contains(i.Id)).OrderByDescending(i => i.DeletedAt).ToList();
+        var binCalls = (state.Data.Calls ?? new()).Where(c => c.DeletedAt != null &&
+            !s.CloudHiddenDeletedCallIds.Contains(c.Id)).OrderByDescending(c => c.DeletedAt).ToList();
         var bin = Section("Bin", $"{binItems.Count + binCalls.Count} deleted record(s) · kept for 30 days");
         foreach (var i in binItems.Take(40))
         {
@@ -135,9 +193,7 @@ public sealed class SettingsView : ScrollViewer, IPage
             bin.Children.Add(Ui.Btn("Empty the Bin", () =>
             {
                 if (!Ui.Confirm("Delete everything in the Bin for good?")) return;
-                foreach (var i in binItems) state.Data.Items.RemoveAll(x => x.Id == i.Id);
-                state.Data.Calls?.RemoveAll(x => x.DeletedAt != null);
-                state.UpdateSettings(x => x);
+                state.EmptyBin();
             }, style: "Danger"));
         _root.Children.Add(Card(bin));
 
@@ -146,9 +202,20 @@ public sealed class SettingsView : ScrollViewer, IPage
         about.Children.Add(Ui.Text($"Remindly {v} for Windows", 15, FontWeights.SemiBold));
         about.Children.Add(Ui.Sub($"{InstallInfo.ModeLabel} copy · {InstallInfo.ExePath}"));
         about.Children.Add(Ui.Sub("The Windows companion of the Remindly Android app: Tasks · Learn · Calls ⇄ Buy (lists) · Shops · Products. " +
-            "Geofenced shop arrivals, call-log detection, maps and cloud sync stay on the phone."));
+            "Geofenced arrivals, call-log detection and maps stay on the phone; Account & Sync is now available on Windows."));
         about.Children.Add(Ui.Row(Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
         _root.Children.Add(Card(about));
+    }
+
+    private void OnCloudChanged() => Dispatcher.BeginInvoke(Refresh);
+
+    public void OpenCloudWizard()
+    {
+        var cloud = App.Cloud;
+        if (cloud == null) { Ui.Info("Google sign-in is not available in smoke-test mode."); return; }
+        var window = new CloudSetupWindow(cloud) { Owner = App.Current.Main };
+        window.ShowDialog();
+        Refresh();
     }
 
     /// <summary>One design to choose: colour swatches, name, a line about it, and "In use" on the current one.</summary>

@@ -208,6 +208,8 @@ public static class DataStore
         s = s with
         {
             ShopLists = (s.ShopLists ?? new()).Where(l => l != null).Select(ShopLists.Heal).ToList(),
+            CloudHiddenDeletedItemIds = s.CloudHiddenDeletedItemIds ?? new(),
+            CloudHiddenDeletedCallIds = s.CloudHiddenDeletedCallIds ?? new(),
             ShopGroups = s.ShopGroups ?? new(),
             ShopGroupOrder = s.ShopGroupOrder ?? new(),
             GroupIcons = s.GroupIcons ?? new(),
