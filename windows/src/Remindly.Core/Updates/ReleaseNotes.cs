@@ -42,7 +42,7 @@ public static class ReleaseNotes
                 if (nested.Success) { title = nested.Groups[1].Value; detail = nested.Groups[2].Value; }
             }
             if (detail.Length < 15 || title.Length > 180) continue;
-            entries.Add(new(category, title, detail));
+            entries.Add(new(category, title.TrimEnd(':').Trim(), detail));
         }
         if (entries.Count > 0) return entries;
         if (string.Equals((version ?? "").Split('-')[0], "2.16.0", StringComparison.OrdinalIgnoreCase)) return Sync216;
