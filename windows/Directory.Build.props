@@ -16,4 +16,11 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
+  <!-- Build facts for Info → This build. CI passes them (-p:RemindlySourcePr=… etc.); local builds leave them empty. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SourcePr" Value="$(RemindlySourcePr)" />
+    <AssemblyMetadata Include="SourceCommit" Value="$(RemindlySourceCommit)" />
+    <AssemblyMetadata Include="BuildTimeUtc" Value="$(RemindlyBuildTimeUtc)" />
+    <AssemblyMetadata Include="ReleaseTag" Value="$(RemindlyReleaseTag)" />
+  </ItemGroup>
 </Project>

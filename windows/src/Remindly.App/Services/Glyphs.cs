@@ -27,4 +27,6 @@ public static class Glyphs
     public const string Lock = "";
     public const string Back = "";
     public const string ChevronRight = "";
+    public const string Info = "";
+    public const string Copy = "";
 }

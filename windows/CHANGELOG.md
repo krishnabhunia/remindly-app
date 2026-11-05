@@ -1,7 +1,32 @@
 # Remindly for Windows — changelog
 
-Each `## X.Y.Z` section becomes the notes of GitHub Release `win-vX.Y.Z`. The CI refuses to build a
-version that has no section here.
+Each `## X.Y.Z` section is built into the app (ⓘ Info → What's new) and becomes the notes of the update
+feed for that version. Write the section for the version a PR releases (beta builds of it show the same
+section). Versions 2.12.0 to 2.16.0 shipped without a section here; their notes are on GitHub Releases.
+
+## 2.17.0 — short beta names and the Info window (05-Nov-2026)
+
+### New
+- **ⓘ Info** next to the version in every design (A Fluent, B Day Board, C Command Dark, D Today Hub),
+  also on **F1** and in **Settings → About**. Four tabs:
+  - **This build** — version, Beta or Stable, the pull request and commit it was made from, when it was
+    built, its GitHub tag, its download and how it is installed. A test build says so at the top.
+  - **What's implemented** — every feature with the version that first had it; search it or show only
+    what is new in this version.
+  - **What's new** — this section.
+  - **Under the hood** — what this copy uses: C# on .NET 8 with WPF, the data file and sync, updates,
+    the design and its fonts; buttons to open the data folder and the log file.
+- **Copy build info** puts two lines on the clipboard for a bug report: version, channel, PR, commit, build
+  time, then Windows, how Remindly is installed and .NET.
+
+### Changed
+- Test builds of a pull request are now named **x.y.z-betaNNN** (for example `2.17.0-beta001`) instead of
+  `x.y.z-beta.<PR>.<run>`. The number counts up across all pull requests of one version. The main
+  window shows a small **Beta** chip next to the version of a test build.
+- Updates rank the new names correctly: `2.17.0-beta002` is newer than `2.17.0-beta001` and than any old
+  `2.17.0-beta.<PR>.<run>` build, and older than the stable `2.17.0`. Old test builds still show in
+  Version history under their own names.
+- The phone's update notes now come from this changelog.
 
 ## Next minor release — four designs to choose from (09-Oct-2026)
 

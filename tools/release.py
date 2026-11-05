@@ -8,6 +8,8 @@ import re
 import subprocess
 import zipfile
 
+from beta_tag import GitHubApi, beta_name, reserve
+
 SEMVER = re.compile(r"^(?:win-)?v?(\d+)\.(\d+)(?:\.(\d+))?$")
 
 
@@ -45,7 +47,8 @@ def android_code(base, beta_build=None):
     return code
 
 
-def plan(event, tags, messages, floor, run_number, already_released=None):
+def target_version(event, tags, messages, floor, already_released=None):
+    """The stable x.y.z this build releases (a PR's beta is a test build of it)."""
     published = [parse_stable(t) for t in tags]
     base = max([v for v in published if v] or [(2, 11, 0)])
     target = max(bump(base, change_kind(event, messages)), parse_stable(floor))
@@ -53,12 +56,23 @@ def plan(event, tags, messages, floor, run_number, already_released=None):
         target = parse_stable(already_released)
         if target is None:
             raise ValueError("Published tag is not a stable version")
+    return target
+
+
+def plan(event, tags, messages, floor, run_number, already_released=None, beta_number=None):
+    """PR builds are <x.y.z>-beta<NNN> (BT1 A); NNN is reserved as a tag by beta_tag.py (BT2).
+
+    Android's hidden versionCode keeps the workflow run number as its serial, exactly as before:
+    only the visible versionName changed."""
+    target = target_version(event, tags, messages, floor, already_released)
     stable = ".".join(map(str, target))
-    pr = event.get("pull_request")
-    beta = pr is not None
-    name = f"{stable}-beta.{event['number']}.{run_number}" if beta else stable
+    beta = event.get("pull_request") is not None
+    if beta and beta_number is None:
+        raise ValueError("A PR build needs a reserved beta number (tools/beta_tag.py)")
+    name = beta_name(stable, int(beta_number)) if beta else stable
     return {"base": stable, "version": name, "tag": f"v{name}", "channel": "beta" if beta else "stable",
-            "code": android_code(target, run_number if beta else None), "zip": f"Remindly_{name}.zip"}
+            "code": android_code(target, run_number if beta else None), "zip": f"Remindly_{name}.zip",
+            "kind": change_kind(event, messages), "beta": f"{int(beta_number):03d}" if beta else ""}
 
 
 def expected_entries(version):
@@ -107,6 +121,7 @@ def main():
     v.add_argument("--run", type=int, required=True)
     v.add_argument("--output", default="release-plan.json")
     v.add_argument("--already-released")
+    v.add_argument("--beta-number", type=int, help="Use this beta number instead of reserving one (local dry runs)")
     q = sub.add_parser("package")
     for key in ("version", "android", "portable", "installer", "out"):
         q.add_argument(f"--{key}", required=True)
@@ -120,7 +135,20 @@ def main():
             latest = max(stable_tags)[1] if stable_tags else None
             args = ["git", "log", f"{latest}..HEAD", "--format=%B"] if latest else ["git", "log", "-1", "--format=%B"]
             messages = subprocess.check_output(args, text=True)
-        result = plan(json.loads(Path(a.event).read_text()), tags, messages, Path("VERSION").read_text().strip(), a.run, a.already_released)
+        event = json.loads(Path(a.event).read_text())
+        floor = Path("VERSION").read_text().strip()
+        number = None
+        if event.get("pull_request"):
+            if a.beta_number is not None:
+                number = a.beta_number
+            else:
+                core = ".".join(map(str, target_version(event, tags, messages, floor)))
+                head = event["pull_request"]["head"]["sha"]  # never the synthetic merge commit
+                token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                reserved = reserve(GitHubApi(os.environ["GITHUB_REPOSITORY"], token), core, "v", head)
+                print(f"Beta number {reserved['number']:03d} {'reused' if reserved['reused'] else 'reserved'}: {reserved['tag']} -> {head}")
+                number = reserved["number"]
+        result = plan(event, tags, messages, floor, a.run, a.already_released, number)
         Path(a.output).write_text(json.dumps(result, indent=2) + "\n")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:

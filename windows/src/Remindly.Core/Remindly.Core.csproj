@@ -12,6 +12,12 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
+  <!-- Info → What's implemented / What's new read these copies, embedded at build time. -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../../docs/FEATURES.md" LogicalName="FEATURES.md" />
+    <EmbeddedResource Include="../../CHANGELOG.md" LogicalName="CHANGELOG.md" />
+  </ItemGroup>
+
   <!-- Firebase client configuration is injected from the existing GitHub Actions secret.
        It is not committed to the repository. Local builds work without it, with sync disabled. -->
   <ItemGroup Condition="Exists('../../../app/google-services.json')">

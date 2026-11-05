@@ -65,6 +65,11 @@ public static class SmokeTest
                 Check(ReferenceEquals(main.SelectedTab, tab), $"{design.Name}: {tab.Header} opens");
                 Capture(main, prefix + "tab-" + ((string)tab.Header).ToLowerInvariant());
             }
+            // ⓘ Info next to the version in this design, and every tab of the Info window.
+            Check(Named(main, "Info") is System.Windows.Controls.Button, $"{design.Name}: ⓘ Info button next to the version");
+            Check(main.IsBetaBuild == (Named(main, "Beta build") != null), $"{design.Name}: Beta chip only on a test build");
+            foreach (var (code, _) in InfoWindow.Tabs)
+                await ShowAndCapture(() => Check(main.OpenInfo(code).CurrentTab == code, $"{design.Name}: Info → {code} opens"), prefix + "info-" + code);
             main.Go(main.BuyTab);
             main.Buy.OpenList(groceries.Id);
             await Idle();
@@ -88,6 +93,18 @@ public static class SmokeTest
         main.ChooseDesign(Designs.Fluent);
         await Idle();
         Check(main.Design == Designs.Fluent, "back to design A");
+
+        // Info: F1 opens it, the build info text has two lines
+        main.Activate();
+        var infoBefore = Application.Current.Windows.OfType<InfoWindow>().Count();
+        main.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(main), 0, System.Windows.Input.Key.F1)
+            { RoutedEvent = UIElement.PreviewKeyDownEvent });
+        await Idle();
+        var opened = Application.Current.Windows.OfType<InfoWindow>().ToList();
+        Check(opened.Count == infoBefore + 1, "F1 opens the Info window");
+        foreach (var w in opened) w.Close();
+        var buildInfo = InfoWindow.BuildInfoText();
+        Check(buildInfo.StartsWith("Remindly ") && buildInfo.Split('\n').Length == 2, "copy build info: " + buildInfo.Replace(Environment.NewLine, " / "));
 
         // Buy: inside a list, Bought view, Buy Now
         main.Go(main.TabFor(Tab.SHOP));
@@ -192,6 +209,15 @@ public static class SmokeTest
         Capture(w, name);
         w.Close();
         await Idle();
+    }
+
+    /// <summary>The first element under <paramref name="root"/> whose automation name is <paramref name="name"/>.</summary>
+    private static DependencyObject? Named(DependencyObject root, string name)
+    {
+        if (System.Windows.Automation.AutomationProperties.GetName(root) == name) return root;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (Named(VisualTreeHelper.GetChild(root, i), name) is DependencyObject found) return found;
+        return null;
     }
 
     private static async Task Idle()
