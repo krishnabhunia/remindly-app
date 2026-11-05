@@ -31,7 +31,9 @@ jobs:
         PR_NUMBER: ${{ github.event.number }}
         COMMIT_SHA: ${{ github.sha }}
       run: |
-        gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > tags.txt
+        # The global remindly-beta concurrency lock covers planning through release publication.
+        # Include all published beta tags so that the next three-digit suffix is never reused.
+        gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false) | .tag_name' > tags.txt
         ARGS=()
         if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].commit.message' > messages.txt

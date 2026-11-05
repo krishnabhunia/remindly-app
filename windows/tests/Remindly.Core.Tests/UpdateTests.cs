@@ -9,6 +9,9 @@ public class UpdateLogicTests
     [Theory]
     [InlineData("win-v2.11.0", true)]
     [InlineData("WIN-V3.0.1", true)]
+    [InlineData("v2.17.0-beta001", true)]
+    [InlineData("win-v2.17.0-beta999", true)]
+    [InlineData("v2.17.0-beta0001", false)]
     [InlineData("v2.11", false)]     // Android release in the same repository
     [InlineData("mac-v1.0.0", false)]
     [InlineData("win-vX", false)]
@@ -145,6 +148,16 @@ public class UpdateLogicTests
         Assert.Equal("2.15.0-beta.105.21.1", UpdateLogic.PickLatest(releases, includeBeta: true)!.DisplayVersion);
         Assert.Equal(new[] { "2.15.0-beta.105.21.1", "2.15.0-beta.105.20.1" },
             UpdateLogic.SelectVersions(releases, "2.15.0-beta.104.999.1", older: false).Select(r => r.DisplayVersion));
+    }
+
+    [Fact]
+    public void Three_digit_betas_sort_in_sequence_and_after_legacy_betas()
+    {
+        Assert.True(UpdateLogic.CompareVersions("2.17.0-beta002", "2.17.0-beta001") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.17.0-beta001", "2.17.0-beta.18.29") > 0);
+        Assert.True(UpdateLogic.CompareVersions("2.17.0-beta.18.29", "2.17.0-beta001") < 0);
+        Assert.True(UpdateLogic.CompareVersions("2.17.0", "2.17.0-beta999") > 0);
+        Assert.True(UpdateLogic.ReleaseFromTag("v2.17.0-beta003")!.IsBeta);
     }
 
     [Theory]
