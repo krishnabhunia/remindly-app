@@ -1,3 +1,15 @@
+# Remindly 2.16.0 — 4 Nov 2026
+
+**Google sign-in and opt-in Android ↔ Windows cloud synchronization.**
+
+- **New — Windows Google sign-in:** a permanent account entry in the top-right corner, browser OAuth flow, and Settings → Account & Sync status, errors, Sync now, pause/resume and sign-out.
+- **New — Two-way synchronization:** Tasks, Learn, Buy items and shopping lists, Calls, shops and saved places synchronize between Android and Windows under the same authenticated Firebase account.
+- **Improved — Data safety:** a local backup precedes the first cloud upload; record IDs, timestamps, incremental reads and deletion markers prevent accidental loss or resurrection of deleted items.
+- **Limitation:** Android city, chain and product catalogues remain local-only. Windows appearance and updater preferences also remain device-specific.
+- **Verification:** CI passed, but live Google OAuth, Firestore rules and two-device synchronization still require manual verification. Do not treat the release as device-verified until Issue #16 is completed.
+
+Implementation: [PR #17](https://github.com/krishnabhunia/remindly-app/pull/17) · [Issue #16](https://github.com/krishnabhunia/remindly-app/issues/16) · [setup and limits](CLOUD-SYNC-WINDOWS.md).
+
 # Remindly 2.11 — 29-Sep-2026
 
 **The Buy tab now opens on your Lists.** Make a list first (Groceries, Monthly stock, a party…),
