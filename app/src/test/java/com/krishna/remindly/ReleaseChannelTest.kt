@@ -8,10 +8,13 @@ class ReleaseChannelTest {
         "https://github.com/krishnabhunia/remindly-app/releases/download/v$name/Remindly_$name.apk", "a".repeat(64), 100, "")
 
     @Test fun betaCannotBeOfferedByStableChannel_evenIfNewerAndPreviouslyCached() {
-        val beta = feed("2.12.0-beta.7.30")
+        val beta = feed("2.12.0-beta007")
         assertTrue(updateAvailable(beta, 2011000))
         assertFalse(updateFeedAllowed(beta, beta = false))
         assertTrue(updateFeedAllowed(beta, beta = true))
+        // Older long-form beta names stay test builds too.
+        assertFalse(updateFeedAllowed(feed("2.12.0-beta.7.30"), beta = false))
+        assertTrue(updateFeedAllowed(feed("2.12.0-beta.7.30"), beta = true))
         assertTrue(updateFeedAllowed(feed("2.12.0"), beta = false))
         assertFalse(updateFeedAllowed(null, beta = true))
     }

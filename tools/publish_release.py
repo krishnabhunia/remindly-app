@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from changelog import notes
 from release import verify_package
 
 
@@ -36,9 +37,14 @@ def main():
     manifest = {"versionCode": plan["code"], "versionName": plan["version"], "apk": apk.name,
                 "apkUrl": f"https://github.com/{repo}/releases/download/{tag}/{apk.name}",
                 "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(), "sizeBytes": apk.stat().st_size,
-                "notes": "Task lists first, unified downloads and optional beta updates."}
+                "notes": notes(plan["base"])}
     manifest_file = Path(args.dist) / "version.json"
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
+    if beta:
+        # BT2: the beta tag was reserved on the PR head commit by the plan step; publish ON it.
+        ref = command("gh", "api", f"repos/{repo}/git/ref/tags/{tag}", "--jq", ".object.sha", capture=True, check=False)
+        if ref.returncode != 0 or ref.stdout.strip() != sha:
+            raise ValueError(f"Reserved beta tag {tag} is missing or not on {sha}")
     info = gh("release", "view", tag, "--json", "isDraft,targetCommitish", capture=True, check=False)
     if info.returncode == 0:
         existing = json.loads(info.stdout)

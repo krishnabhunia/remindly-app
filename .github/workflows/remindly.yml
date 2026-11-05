@@ -40,7 +40,23 @@ jobs:
           OLD=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and .prerelease == false and .target_commitish == env.COMMIT_SHA) | .tag_name' | head -1)
           if [ -n "$OLD" ]; then ARGS+=(--already-released "$OLD"); fi
         fi
+        # A PR build reserves its short beta number as the tag v<x.y.z>-beta<NNN> on the PR head commit (tools/beta_tag.py).
         python tools/release.py plan --event "$GITHUB_EVENT_PATH" --tags tags.txt --run "$GITHUB_RUN_NUMBER" "${ARGS[@]}"
+        echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Check docs/FEATURES.md
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        VERSION_BASE: ${{ steps.plan.outputs.base }}
+        KIND: ${{ steps.plan.outputs.kind }}
+      run: |
+        ARGS=()
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          git diff --name-only "$BASE_SHA...$HEAD_SHA" > changed.txt
+          ARGS+=(--kind "$KIND" --changed changed.txt)
+        fi
+        python tools/features.py --version "$VERSION_BASE" "${ARGS[@]}"
       shell: bash
     - uses: actions/setup-dotnet@v5
       with:
@@ -64,7 +80,8 @@ jobs:
         PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
     - name: Build portable application
       run: |
-        dotnet publish src/Remindly.App/Remindly.App.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION -o out/portable
+        dotnet publish src/Remindly.App/Remindly.App.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION -o out/portable `
+          "-p:RemindlySourcePr=$env:SOURCE_PR" "-p:RemindlySourceCommit=$env:SOURCE_COMMIT" "-p:RemindlyBuildTimeUtc=$env:BUILD_TIME" "-p:RemindlyReleaseTag=$env:RELEASE_TAG"
         if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed' }
         if (-not (Get-Item out/portable/Remindly.exe).VersionInfo.ProductVersion.StartsWith($env:PACKAGE_VERSION)) { throw 'Executable version does not match the package' }
       working-directory: windows
@@ -73,6 +90,11 @@ jobs:
         DOTNET_NOLOGO: '1'
         BASE_VERSION: ${{ steps.plan.outputs.base }}
         PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+        # Shown in Info → This build; empty in local builds.
+        SOURCE_PR: ${{ github.event.pull_request.number }}
+        SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        BUILD_TIME: ${{ steps.plan.outputs.built }}
+        RELEASE_TAG: ${{ steps.plan.outputs.tag }}
     - name: UI smoke test
       timeout-minutes: 10
       run: |
@@ -215,6 +237,7 @@ on:
     branches:
     - main
     paths:
+    - docs/FEATURES.md
     - app/**
     - windows/**
     - tools/**
@@ -225,6 +248,7 @@ on:
     branches:
     - main
     paths:
+    - docs/FEATURES.md
     - app/**
     - windows/**
     - tools/**
