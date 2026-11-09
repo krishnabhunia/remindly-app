@@ -9,18 +9,11 @@ using Remindly.Core;
 
 namespace Remindly.App.Views;
 
-/// <summary>
-/// Tasks and Learn: quick add, Active / Done, grouped by day, tick to complete (with Undo). The layout follows the design
-/// chosen in Settings → Appearance: A list + details pane · B day columns · C dense rows with quick views · D day tiles.
-/// </summary>
-public sealed class ItemsView : DockPanel, IPage
+/// <summary>Tasks and Learn; list membership is independent of the chosen desktop design.</summary>
+public sealed partial class ItemsView : DockPanel, IPage
 {
-    // ───────────────────────── Command Dark quick views ─────────────────────────
-
     public const string AllView = "ALL";
-
     public sealed record QuickView(string Code, string Label, string Dot);
-
     public static readonly QuickView[] QuickViews =
     {
         new("TODAY", "Today", "#9B8CFF"),
@@ -29,10 +22,7 @@ public sealed class ItemsView : DockPanel, IPage
         new("REPEATING", "Repeating", "#34D399"),
         new("PERSONAL", "Personal", "#A0A6B3"),
     };
-
-    /// <summary>The quick view picked in the Command Dark sidebar (Tasks only).</summary>
     public static string CommandView { get; set; } = AllView;
-
     public static bool Matches(string view, Item i, long now)
     {
         if (view == AllView) return true;
@@ -70,20 +60,15 @@ public sealed class ItemsView : DockPanel, IPage
         _search.TextChanged += (_, _) => Refresh();
         _title = Ui.H1(TabNames.Title(tab));
         if (_design == Designs.Hub) _title.FontSize = 28;
-
         var right = Ui.Row(
             Ui.Chip("Active", "view" + tab + _design, true, () => { _doneView = false; Refresh(); }),
             Ui.Chip("Done", "view" + tab + _design, false, () => { _doneView = true; Refresh(); }),
-            new Border { Width = 12 },
-            _search,
-            new Border { Width = 8 },
-            Ui.Primary("+ New", () => ItemEditor.New(_tab), "New with all details (Ctrl+N)"));
+            new Border { Width = 12 }, _search, new Border { Width = 8 },
+            Ui.Primary("+ New", () => ItemEditor.New(_tab, listId: TaskListForNew), "New with all details (Ctrl+N)"));
         var bar = Ui.Columns("*,Auto", Ui.Stack(_title, _count), right);
         bar.Margin = new Thickness(0, 0, 0, 10);
         SetDock(bar, Dock.Top);
         Children.Add(bar);
-
-        // Command Dark adds from the window's command bar (Ctrl+K) instead of a box per page.
         if (_design != Designs.Command)
         {
             _quick = Ui.Input(placeholder: $"Add {noun} — type and press Enter", onEnter: QuickAdd);
@@ -94,13 +79,13 @@ public sealed class ItemsView : DockPanel, IPage
             SetDock(add, Dock.Top);
             Children.Add(add);
         }
-
+        AddTaskNavigation();
         Children.Add(_body);
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
             {
-                ItemEditor.New(_tab);
+                ItemEditor.New(_tab, listId: TaskListForNew);
                 e.Handled = true;
             }
         };
@@ -110,18 +95,24 @@ public sealed class ItemsView : DockPanel, IPage
     {
         if (_quick == null) return;
         var text = _quick.Text.Trim();
-        if (AddQuick(_tab, text)) _quick.Clear();
+        if (AddQuick(_tab, text, TaskListForNew)) _quick.Clear();
     }
 
-    /// <summary>Quick add with the duplicate check (used by the page box and the Command Dark command bar).</summary>
-    public static bool AddQuick(Tab tab, string text)
+    public static bool AddQuick(Tab tab, string text, long? taskListId = null)
     {
         text = text.Trim();
         if (text.Length == 0) return false;
         var state = AppState.Current;
         if (ItemRules.DupActiveMatch(state.Data.Items, tab, text) && !Ui.Confirm($"\"{text}\" is already on your {TabNames.Title(tab)} list. Add it again?")) return false;
-        state.Upsert(state.NewItem(tab, text));
-        App.Current.Main.Snack($"Added to {TabNames.Title(tab)}");
+        var item = state.NewItem(tab, text);
+        if (tab == Tab.TASKS && taskListId is long id)
+        {
+            var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == id);
+            if (list == null) { App.Current.Main.Snack("The selected task list is no longer available."); return false; }
+            item = item with { ListId = list.Id, Group = list.Name };
+        }
+        state.Upsert(item);
+        App.Current.Main.Snack(tab == Tab.TASKS ? $"Added to {item.Group ?? "Unsorted"}" : $"Added to {TabNames.Title(tab)}");
         return true;
     }
 
@@ -130,18 +121,17 @@ public sealed class ItemsView : DockPanel, IPage
         var state = AppState.Current;
         long now = state.Now;
         var q = _search.Text.Trim();
-        var live = state.LiveItems(_tab).ToList();
+        if (TryShowTaskLists(now, q)) return;
+        var live = ScopeToTaskList(state.LiveItems(_tab)).ToList();
         var view = _design == Designs.Command && _tab == Tab.TASKS ? CommandView : AllView;
         var shown = live.Where(i => i.Done == _doneView)
             .Where(i => q.Length == 0 || i.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || (i.Topic ?? "").Contains(q, StringComparison.OrdinalIgnoreCase))
-            .Where(i => _doneView || Matches(view, i, now))
-            .ToList();
+            .Where(i => _doneView || Matches(view, i, now)).ToList();
         int open = live.Count(i => !i.Done);
         int today = ItemRules.PendingTodayCount(live, _tab, now);
-        _title.Text = view == AllView ? TabNames.Title(_tab) : QuickViews.First(v => v.Code == view).Label;
+        _title.Text = TaskScopeTitle(view == AllView ? TabNames.Title(_tab) : QuickViews.First(v => v.Code == view).Label);
         _count.Text = $"{open} active · {today} due today or overdue · {live.Count(i => i.Done)} done";
-
         if (shown.Count == 0 && !(_design == Designs.Board && !_doneView))
         {
             _body.Content = Ui.Scroll(Ui.EmptyState(_doneView ? "Nothing done yet" : "All clear",
@@ -158,7 +148,6 @@ public sealed class ItemsView : DockPanel, IPage
             Designs.Fluent => FluentBody(shown, now),
             _ => ListBody(shown, now),
         };
-        // Every refresh rebuilds the body; keep the reader where they were (runs before the next mouse input).
         if (v > 0 || h > 0)
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
             {
@@ -188,8 +177,6 @@ public sealed class ItemsView : DockPanel, IPage
         (_list.Parent as ScrollViewer)?.SetValue(ContentControl.ContentProperty, null);
         return Ui.Scroll(_list);
     }
-
-    // ───────────────────────── A · Fluent: list + details pane ─────────────────────────
 
     private UIElement FluentBody(List<Item> shown, long now)
     {
@@ -243,13 +230,9 @@ public sealed class ItemsView : DockPanel, IPage
         var p = new StackPanel();
         var box = new Border
         {
-            Background = Ui.Res("CardBrush"),
-            BorderBrush = Ui.Res("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(18, 16, 18, 16),
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = p,
+            Background = Ui.Res("CardBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(18, 16, 18, 16),
+            VerticalAlignment = VerticalAlignment.Top, Child = p,
         };
         if (i == null)
         {
@@ -265,7 +248,6 @@ public sealed class ItemsView : DockPanel, IPage
         p.Children.Add(title);
         var tags = Tags(i, now);
         if (tags.Children.Count > 0) { tags.Margin = new Thickness(0, 0, 0, 8); p.Children.Add(tags); }
-
         void Field(string label, string? value)
         {
             if (string.IsNullOrWhiteSpace(value)) return;
@@ -274,6 +256,8 @@ public sealed class ItemsView : DockPanel, IPage
             p.Children.Add(l);
             p.Children.Add(Ui.Text(value!, 14));
         }
+        if (i.Tab == Tab.TASKS)
+            Field("List", TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == TaskLists.ListIdOf(i, state.Settings.TaskLists))?.Name ?? "Unsorted");
         var due = Ui.DueText(i.DueAt, i.DueHasTime, now);
         Field(i.Done ? (i.RepeatMode != "OFF" ? "Returns" : "Was due") : "Due", due.Length > 0 ? due : "No date");
         Field("Repeat", Recurrence.Label(i));
@@ -287,7 +271,6 @@ public sealed class ItemsView : DockPanel, IPage
         }
         Field("Notes", i.Notes);
         if (i.Done && i.DoneAt is long da) Field("Done", Clock.FormatDayTime(da));
-
         var actions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
         actions.Children.Add(Ui.Primary("Edit…", () => ItemEditor.Edit(i)));
         actions.Children.Add(Ui.Btn(i.Done ? "Back to Active" : "Done", () => Toggle(i, !i.Done)));
@@ -300,8 +283,6 @@ public sealed class ItemsView : DockPanel, IPage
         p.Children.Add(del);
         return box;
     }
-
-    // ───────────────────────── B · Day Board: four columns ─────────────────────────
 
     private UIElement BoardBody(List<Item> shown, long now)
     {
@@ -324,7 +305,6 @@ public sealed class ItemsView : DockPanel, IPage
             ((Grid)stack.Children[0]).Margin = new Thickness(4, 2, 4, 10);
             foreach (var i in c.Items) stack.Children.Add(BoardCard(i, now));
             if (c.Items.Count == 0) { var e = Ui.Sub("Nothing here"); e.Margin = new Thickness(4, 0, 0, 10); stack.Children.Add(e); }
-
             Button footer;
             if (overdue)
             {
@@ -345,21 +325,17 @@ public sealed class ItemsView : DockPanel, IPage
                     DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddHours(state.Settings.DefaultDueHour)),
                     _ => null,
                 };
-                footer = Ui.Btn("+ Add " + (c.Key == DesktopViews.Later ? "for later" : "to " + c.Label.ToLowerInvariant()), () => ItemEditor.New(_tab, dueAt: due));
+                footer = Ui.Btn("+ Add " + (c.Key == DesktopViews.Later ? "for later" : "to " + c.Label.ToLowerInvariant()), () => ItemEditor.New(_tab, listId: TaskListForNew, dueAt: due));
             }
             footer.HorizontalAlignment = HorizontalAlignment.Stretch;
             footer.Background = Brushes.Transparent;
             footer.Margin = new Thickness(0, 4, 0, 0);
             stack.Children.Add(footer);
-
             grid.Children.Add(new Border
             {
                 Background = overdue ? Ui.Res("DangerSoftBrush") : c.Key == DesktopViews.Today ? Ui.Res("AccentSoftBrush") : Ui.Res("NavSelectedBrush"),
-                CornerRadius = new CornerRadius(14),
-                Padding = new Thickness(10),
-                Margin = new Thickness(0, 0, 14, 0),
-                VerticalAlignment = VerticalAlignment.Top,
-                Child = stack,
+                CornerRadius = new CornerRadius(14), Padding = new Thickness(10), Margin = new Thickness(0, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Top, Child = stack,
             });
         }
         var sv = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
@@ -367,15 +343,12 @@ public sealed class ItemsView : DockPanel, IPage
         return sv;
     }
 
-    /// <summary>The next whole local hour today (23:59 late in the evening) — built in local time, so DST and half-hour zones are right.</summary>
     private static long NextLocalHour(long now)
     {
         var local = Clock.ToLocal(now);
         var next = local.Date.AddHours(local.Hour + 1);
         return Clock.FromLocal(next.Date == local.Date ? next : local.Date.AddHours(23).AddMinutes(59));
     }
-
-    /// <summary>Four equal columns that fill the width they are given.</summary>
     private sealed class UniformGrid4 : UniformGrid
     {
         public UniformGrid4() { Columns = 4; Rows = 1; VerticalAlignment = VerticalAlignment.Top; }
@@ -420,18 +393,12 @@ public sealed class ItemsView : DockPanel, IPage
         t.Margin = new Thickness(0, 0, 6, 4);
         return t;
     }
-
     private static Brush PriorityInk(Priority p) => p switch
     {
-        Priority.URGENT => Ui.Res("DangerBrush"),
-        Priority.HIGH => Ui.Res("AmberBrush"),
-        _ => Ui.Res("InkSubtleBrush"),
+        Priority.URGENT => Ui.Res("DangerBrush"), Priority.HIGH => Ui.Res("AmberBrush"), _ => Ui.Res("InkSubtleBrush"),
     };
 
-    // ───────────────────────── C · Command Dark: dense rows ─────────────────────────
-
     private const string TableCols = "36,*,180,150,100";
-
     private UIElement TableBody(List<Item> shown, long now)
     {
         var rows = new StackPanel();
@@ -448,17 +415,11 @@ public sealed class ItemsView : DockPanel, IPage
         }
         var box = new Border
         {
-            Background = Ui.Res("NavBrush"),
-            BorderBrush = Ui.Res("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(0, 0, 0, 6),
-            Child = rows,
-            VerticalAlignment = VerticalAlignment.Top,
+            Background = Ui.Res("NavBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 0, 0, 6), Child = rows, VerticalAlignment = VerticalAlignment.Top,
         };
         return new ScrollViewer { Content = box, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 6, 0) };
     }
-
     private static TextBlock Caption(string text) => Ui.Text(text.ToUpperInvariant(), 11.5, FontWeights.SemiBold, Ui.Res("InkHintBrush"), wrap: false);
 
     private Border TableRow(Item i, long now)
@@ -488,16 +449,10 @@ public sealed class ItemsView : DockPanel, IPage
 
     private static Border Outline(string text) => new()
     {
-        BorderBrush = Ui.Res("InverseSubBrush"),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(5, 0, 5, 1),
-        Margin = new Thickness(8, 0, 0, 0),
-        VerticalAlignment = VerticalAlignment.Center,
+        BorderBrush = Ui.Res("InverseSubBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(5, 0, 5, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
         Child = Ui.Text(text, 11.5, color: Ui.Res("InkSubtleBrush"), wrap: false),
     };
-
-    // ───────────────────────── D · Today Hub: a tile per day ─────────────────────────
 
     private UIElement TileBody(List<Item> shown, long now)
     {
@@ -536,8 +491,6 @@ public sealed class ItemsView : DockPanel, IPage
         return row;
     }
 
-    // ───────────────────────── shared actions ─────────────────────────
-
     internal static void Toggle(Item i, bool isChecked)
     {
         var state = AppState.Current;
@@ -553,21 +506,17 @@ public sealed class ItemsView : DockPanel, IPage
             App.Current.Main.Snack("Back to Active", () => state.Upsert(before));
         }
     }
-
     private static void Snooze(Item i)
     {
         var state = AppState.Current;
         state.Snooze(i, state.Settings.SnoozeMinutes);
         App.Current.Main.Snack($"Snoozed {state.Settings.SnoozeMinutes} min", () => state.Upsert(i));
     }
-
     private static void Delete(Item i)
     {
         AppState.Current.SoftDelete(new[] { i });
         App.Current.Main.Snack("Moved to the Bin", () => AppState.Current.Upsert(i));
     }
-
-    /// <summary>Right-click menu for a task (board cards, table rows, timeline rows).</summary>
     private static ContextMenu ItemMenu(Item i)
     {
         var state = AppState.Current;
@@ -586,7 +535,6 @@ public sealed class ItemsView : DockPanel, IPage
         Add("Delete (to the Bin)", () => Delete(i));
         return m;
     }
-
     private static List<UIElement> TagList(Item i, long now)
     {
         var tags = new List<UIElement>();
@@ -597,7 +545,6 @@ public sealed class ItemsView : DockPanel, IPage
         if (i.SnoozedUntil is long sn && sn > now) tags.Add(Ui.Tag("💤 " + Clock.FormatTime(sn), Ui.Res("AmberBrush"), Ui.Res("AmberSoftBrush")));
         return tags;
     }
-
     private static WrapPanel Tags(Item i, long now)
     {
         var row = new WrapPanel();
@@ -605,22 +552,21 @@ public sealed class ItemsView : DockPanel, IPage
         return row;
     }
 
-    /// <summary>The standard card (Buy lists and design A use it).</summary>
     internal static Border ItemCard(Item i, long now, bool showList = false)
     {
         var state = AppState.Current;
         var check = Ui.Check(i.Done, isChecked => Toggle(i, isChecked), i.Done ? "Back to Active" : (i.Tab == Tab.SHOP ? "Bought" : "Done"));
-
         var titleRow = new WrapPanel();
         var title = Ui.Text(i.Title, 15, FontWeights.SemiBold);
         if (i.Done) { title.TextDecorations = TextDecorations.Strikethrough; title.Foreground = Ui.Res("InkSubtleBrush"); }
         title.Margin = new Thickness(0, 0, 8, 0);
         titleRow.Children.Add(title);
         foreach (var t in TagList(i, now)) titleRow.Children.Add(t);
-
         var meta = new List<string>();
         var due = Ui.DueText(i.DueAt, i.DueHasTime, now);
         if (due.Length > 0) meta.Add((i.Done && i.RepeatMode != "OFF" ? "Returns " : "") + due);
+        if (i.Tab == Tab.TASKS)
+            meta.Add("📋 " + (TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == TaskLists.ListIdOf(i, state.Settings.TaskLists))?.Name ?? "Unsorted"));
         if (i.Tab == Tab.SHOP)
         {
             if (ShopLists.QtySegment(i) is string qs) meta.Add(qs);
@@ -639,18 +585,15 @@ public sealed class ItemsView : DockPanel, IPage
         if (!string.IsNullOrWhiteSpace(i.Notes)) meta.Add(i.Notes.Trim().Replace('\n', ' '));
         var metaText = Ui.Sub(string.Join("  ·  ", meta));
         if (!i.Done && i.DueAt is long d && d < now && i.Tab != Tab.SHOP) metaText.Foreground = Ui.Res("DangerBrush");
-
         var mid = Ui.Stack(titleRow);
         if (meta.Count > 0) mid.Children.Add(metaText);
         if (i.Tab == Tab.LEARN && i.Progress > 0)
             mid.Children.Add(new ProgressBar { Value = i.Progress, Maximum = 100, Height = 4, Margin = new Thickness(0, 5, 0, 0), Foreground = Ui.Res("AccentBrush"), Background = Ui.Res("NavSelectedBrush"), BorderThickness = new Thickness(0) });
-
         var actions = Ui.Row();
         if (!string.IsNullOrWhiteSpace(i.Url)) actions.Children.Add(Ui.IconBtn("🔗", () => InstallInfo.OpenUrl(i.Url!), "Open link"));
         if (!i.Done && i.DueAt != null) actions.Children.Add(Ui.IconBtn("💤", () => Snooze(i), $"Snooze {state.Settings.SnoozeMinutes} min"));
         actions.Children.Add(Ui.IconBtn("✎", () => ItemEditor.Edit(i), "Edit"));
         actions.Children.Add(Ui.IconBtn("🗑", () => Delete(i), "Delete (to the Bin for 30 days)"));
-
         var grid = Ui.Columns("Auto,*,Auto", check, mid, actions);
         var card = Ui.Card(grid, () => ItemEditor.Edit(i));
         if (i.Personal) card.BorderBrush = Ui.Res("AccentSoftBrush");
