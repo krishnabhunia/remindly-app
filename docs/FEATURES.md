@@ -3,7 +3,7 @@ What the Remindly Windows app can do today, and the version that first had it (s
 | SrNo. | Area | What it does | Since |
 |---|---|---|---|
 | 1 | Tasks | Quick add, Active / Done, grouped Overdue · Today · Tomorrow · later days, priorities, snooze and Personal items. | 2.11.0 |
-| 2 | Repeats | Daily, weekly on days, monthly on days or "second Monday / last Friday", quarterly, yearly, every N, spaced revision and end after N times; a done repeat comes back on its next day. | 2.11.0 |
+| 2 | Repeats | Daily, weekly on days or "second Monday / last Friday", monthly, quarterly, yearly, every N, spaced revision and end after N times; a done repeat comes back on its next day. | 2.11.0 |
 | 3 | Learn | Learning items in their own Learn section, with the same priorities and repeats, including spaced revision. | 2.11.0 |
 | 4 | Calls | Call-back reminders; the reminder card offers Call and WhatsApp. | 2.11.0 |
 | 5 | Buy lists | Buy opens on your lists: what is left, progress, where items are bought, an estimated total and the shopping day; sort, pin, private lists. | 2.11.0 |
@@ -30,3 +30,4 @@ What the Remindly Windows app can do today, and the version that first had it (s
 | 26 | Beta chip | A test build shows a small Beta chip next to the version in every design. | 2.18.0 |
 | 27 | Task-list parity | Windows reads and merges Android task lists, including empty lists, icons and pins. Tasks opens on list cards in all four designs; All tasks and Unsorted remain available. Create, rename or remove lists and select a task's list in its editor. | 2.18.1 |
 | 28 | Full sync retry | Sync now rereads collections instead of relying on device timestamps; scheduled full reads run daily without the deadline sliding on every poll. Late offline changes may require this full read. Invalid cloud records are reported instead of claiming complete sync. | 2.18.1 |
+| 29 | Task workspace R1 | Single-click lists and task names, selected view tabs, Back and breadcrumbs, context-aware creation, explicit task destinations, scoped search, list badges and protected editor drafts in all four designs. | 2.18.2 |
