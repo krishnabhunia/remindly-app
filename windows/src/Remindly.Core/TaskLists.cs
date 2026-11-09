@@ -27,7 +27,6 @@ public static class TaskLists
     public static long? ListIdOf(Item item, IEnumerable<TaskList>? lists)
     {
         if (item.Tab != Tab.TASKS) return null;
-        // An explicit ID must never fall back to a stale name after a deletion or rename.
         if (item.ListId is long id) return Live(lists).FirstOrDefault(l => l.Id == id)?.Id;
         return Named(lists, item.Group)?.Id;
     }
@@ -78,7 +77,6 @@ public static class TaskLists
             .Select(l => l.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
     };
 
-    /// <summary>Same UTF-8 FNV-1a ID and task prefix as Android seedTaskListId().</summary>
     public static long SeedId(string name)
     {
         ulong hash = 14695981039346656037UL;
@@ -87,17 +85,20 @@ public static class TaskLists
     }
 
     /// <summary>
-    /// Non-destructive legacy migration. Empty configured groups become lists. Retained
-    /// tombstones block stale group names. Missing metadata NEVER clears an item's explicit
-    /// listId: items and settings can arrive at different times during synchronization.
+    /// Non-destructive migration: configured groups seed a legacy profile with no list records.
+    /// Once canonical records exist they are authoritative; stale group names must not recreate
+    /// renamed or deleted lists. An unstamped legacy task can still introduce a new group.
+    /// Missing metadata NEVER clears an explicit listId: items/settings can arrive separately.
     /// </summary>
     public static void Normalize(RemindlyData data, long now)
     {
         var settings = data.Settings;
         var lists = Merge(settings.TaskLists, data.TaskLists);
-        var groups = (settings.TasksGroups ?? new()).Concat(data.TasksGroups ?? new())
-            .Concat(data.Items.Where(i => i.Tab == Tab.TASKS && i.DeletedAt == null && i.ListId == null)
-                .Select(i => i.Group ?? ""));
+        IEnumerable<string> configured = lists.Count == 0
+            ? (settings.TasksGroups ?? new()).Concat(data.TasksGroups ?? new()) : Array.Empty<string>();
+        var groups = configured.Concat(data.Items
+            .Where(i => i.Tab == Tab.TASKS && i.DeletedAt == null && i.ListId == null)
+            .Select(i => i.Group ?? ""));
         foreach (var name in groups.Where(ValidName).Select(n => n.Trim()).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (Named(lists, name) != null || lists.Any(l => l.DeletedAt != null && Key(l.Name) == Key(name))) continue;
