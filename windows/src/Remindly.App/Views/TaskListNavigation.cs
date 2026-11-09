@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using Remindly.App.Services;
 using Remindly.Core;
@@ -19,7 +20,7 @@ public sealed partial class ItemsView
     private readonly ComboBox _sort = new() { Width = 110 };
     private readonly Border _composer = new();
     private readonly Dictionary<long, Button> _listButtons = new();
-    private Button _primaryButton = null!, _editListButton = null!, _addButton = null!;
+    private Button _primaryButton = null!, _editListButton = null!, _listMoreButton = null!, _addButton = null!;
     private RadioButton _listsTab = null!, _allTab = null!, _activeTab = null!, _doneTab = null!;
     private bool _ready, _restoring;
     private long _renderGeneration;
@@ -41,7 +42,11 @@ public sealed partial class ItemsView
         Children.Add(_breadcrumbs);
         _primaryButton = WorkspaceUi.Identify(Ui.Primary("+ New task", CreateInScope), "workspace-new", "New task");
         _editListButton = WorkspaceUi.Identify(Ui.Btn("Edit list…", () => { if (CurrentList is { } list) TaskListEditor.Edit(list); }), "edit-current-list", "Edit current list");
-        var actions = Ui.Row(_editListButton, _primaryButton);
+        // Inside a list: Edit list… plus a ⋯ menu with Edit, Pin / Unpin and Delete (approved design A6).
+        _listMoreButton = WorkspaceUi.More("current-list-menu", "More options for this list",
+            () => CurrentList is { } list ? ListMenu(list) : new ContextMenu());
+        _listMoreButton.Margin = new Thickness(4, 0, 8, 0);
+        var actions = Ui.Row(_editListButton, _listMoreButton, _primaryButton);
         SetDock(actions, Dock.Right);
         var heading = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 14) };
         heading.Children.Add(actions);
@@ -164,6 +169,7 @@ public sealed partial class ItemsView
             _primaryButton.Content = tasks && location.IsOverview ? "+ New list" : _tab == Tab.LEARN ? "+ New learning item" : "+ New task";
             System.Windows.Automation.AutomationProperties.SetName(_primaryButton, _primaryButton.Content.ToString());
             _editListButton.Visibility = tasks && location.IsInsideList && CurrentList != null ? Visibility.Visible : Visibility.Collapsed;
+            _listMoreButton.Visibility = _editListButton.Visibility;
             _sort.Visibility = tasks && location.IsOverview ? Visibility.Visible : Visibility.Collapsed;
             _composer.Visibility = location.ShowTaskControls ? Visibility.Visible : Visibility.Collapsed;
             _search.Hint = tasks ? TaskWorkspaceRules.SearchHint(location, TaskScopeTitle("Tasks")) : "Search learning items";
@@ -231,12 +237,17 @@ public sealed partial class ItemsView
 
     private void CreateTask(long? dueAt = null) => ItemEditor.New(_tab, listId: TaskListForNew, dueAt: dueAt);
 
-    public bool HandleWorkspaceShortcut(Key key, ModifierKeys modifiers)
+    public bool HandleWorkspaceShortcut(Key key, ModifierKeys modifiers, IInputElement? focused = null)
     {
+        focused ??= Keyboard.FocusedElement;
         if (modifiers == ModifierKeys.Control && key == Key.F) { _search.Focus(); _search.SelectAll(); return true; }
         if (_tab != Tab.TASKS) return false;
         if (modifiers == ModifierKeys.Control && key == Key.N) { CreateInScope(); return true; }
         if (modifiers == ModifierKeys.Alt && key == Key.Left && !CurrentLocation.IsOverview) { BackInTasks(); return true; }
+        // Esc also goes back, except while typing or choosing in a box (those keep their own Esc).
+        if (modifiers == ModifierKeys.None && key == Key.Escape && !CurrentLocation.IsOverview &&
+            focused is not (TextBoxBase or ComboBox or ComboBoxItem or PasswordBox))
+        { BackInTasks(); return true; }
         return false;
     }
 
@@ -278,8 +289,17 @@ public sealed partial class ItemsView
             if (query.Length > 0 && !name.Contains(query, StringComparison.OrdinalIgnoreCase)) return;
             var members = TaskLists.Members(state.Data.Items, id, state.Settings.TaskLists);
             int active = members.Count(i => !i.Done), done = members.Count(i => i.Done);
-            var summary = Ui.Stack(Ui.Text((icon ?? "📋") + "  " + name + (record?.Pinned == true ? " · Pinned" : ""), 16, FontWeights.SemiBold),
-                Ui.Sub(members.Count == 0 ? "No tasks yet" : $"{active} active · {done} done"));
+            var nameRow = new WrapPanel();
+            nameRow.Children.Add(Ui.Text(TaskListIcons.Selected(icon) + "  " + name, 16, FontWeights.SemiBold));
+            if (record?.Pinned == true)
+            {
+                var pin = Ui.Glyph(Glyphs.Pin, 13, Ui.Res("AccentBrush"));
+                pin.Margin = new Thickness(8, 0, 0, 0);
+                pin.ToolTip = "Pinned";
+                WorkspaceUi.Identify(pin, $"task-list-pin-{id}", "Pinned");
+                nameRow.Children.Add(pin);
+            }
+            var summary = Ui.Stack(nameRow, Ui.Sub(members.Count == 0 ? "No tasks yet" : $"{active} active · {done} done"));
             var progress = Ui.Stack(Ui.Sub(members.Count == 0 ? "Empty list" : $"{done} of {members.Count} done"));
             progress.Width = 150;
             if (members.Count > 0) progress.Children.Add(new ProgressBar
@@ -303,8 +323,29 @@ public sealed partial class ItemsView
             ? lists.OrderByDescending(l => l.Pinned).ThenByDescending(l => Math.Max(l.UpdatedAt,
                 TaskLists.Members(state.Data.Items, l.Id, lists).Select(i => Math.Max(i.UpdatedAt, i.CreatedAt)).DefaultIfEmpty().Max()))
             : lists.OrderByDescending(l => l.Pinned).ThenBy(l => l.Name, StringComparer.OrdinalIgnoreCase);
-        foreach (var list in sorted) AddCard(list.Id, list.Name, list.Icon, list);
-        if (TaskLists.Members(state.Data.Items, 0, lists).Count > 0) AddCard(0, "Unsorted", null, null);
+        // Pinned lists get their own heading above "All lists" (approved F7); both sorts keep pinned first.
+        bool Shown(string name) => query.Length == 0 || name.Contains(query, StringComparison.OrdinalIgnoreCase);
+        var visible = sorted.Where(l => Shown(l.Name)).ToList();
+        bool unsorted = TaskLists.Members(state.Data.Items, 0, lists).Count > 0 && Shown("Unsorted");
+        bool sections = visible.Any(l => l.Pinned), othersHeading = false;
+        void Heading(string id, string text, bool pinned)
+        {
+            var label = Ui.Header(text);
+            var row = pinned ? Ui.Row(Ui.Glyph(Glyphs.Pin, 12, Ui.Res("InkSubtleBrush")), new Border { Width = 6 }, label) : Ui.Row(label);
+            row.Margin = new Thickness(2, cards.Children.Count == 0 ? 0 : 10, 0, 6);
+            cards.Children.Add(WorkspaceUi.Identify(row, id, text));
+        }
+        if (sections) Heading("lists-pinned-heading", "Pinned", true);
+        foreach (var list in visible)
+        {
+            if (sections && !list.Pinned && !othersHeading) { Heading("lists-all-heading", "All lists", false); othersHeading = true; }
+            AddCard(list.Id, list.Name, list.Icon, list);
+        }
+        if (unsorted)
+        {
+            if (sections && !othersHeading) Heading("lists-all-heading", "All lists", false);
+            AddCard(0, "Unsorted", null, null);
+        }
         if (cards.Children.Count == 0)
             cards.Children.Add(Ui.EmptyState(query.Length > 0 ? "No matching lists" : "No task lists yet",
                 query.Length > 0 ? "Clear the search to see all lists." : "Choose + New list to get started."));
@@ -337,15 +378,28 @@ public sealed partial class ItemsView
 public sealed class TaskListEditor : EditorWindow
 {
     private readonly TaskList? _original;
-    private readonly TextBox _name = new(), _icon = new();
+    private readonly TextBox _name = new();
+    private readonly WrapPanel _icons = new();
+    private string _icon;
     private readonly CheckBox _pinned = new() { Content = "Pinned" };
 
     private TaskListEditor(TaskList? list) : base(list == null ? "New task list" : "Edit task list", 460)
     {
         _original = list;
-        _name.Text = list?.Name ?? ""; _icon.Text = list?.Icon ?? ""; _pinned.IsChecked = list?.Pinned == true;
+        _name.Text = list?.Name ?? ""; _pinned.IsChecked = list?.Pinned == true;
         WorkspaceUi.Identify(_name, "task-list-name", "List name");
-        Field("List name", _name); Field("Icon (optional)", _icon); Form.Children.Add(_pinned);
+        // An icon picker replaces the free-text box (approved F14). Same emoji text as the phone stores.
+        _icon = TaskListIcons.Selected(list?.Icon);
+        string group = "taskListIcon" + Guid.NewGuid().ToString("N");
+        int n = 0;
+        foreach (var choice in TaskListIcons.Choices(list?.Icon))
+        {
+            var chip = WorkspaceUi.Identify(Ui.Chip(choice, group, choice == _icon, () => _icon = choice), $"task-list-icon-{n++}", "Icon " + choice);
+            chip.FontSize = 18; chip.MinWidth = 44; chip.Margin = new Thickness(0, 0, 6, 6);
+            _icons.Children.Add(chip);
+        }
+        WorkspaceUi.Identify(_icons, "task-list-icons", "List icon");
+        Field("List name", _name); Field("Icon", _icons); Form.Children.Add(_pinned);
         EnableUnsavedGuard();
         AddButtons(list == null ? "Create" : "Save");
         Loaded += (_, _) => { _name.Focus(); _name.SelectAll(); };
@@ -368,7 +422,7 @@ public sealed class TaskListEditor : EditorWindow
         { ShowWarning("This list changed while you were editing. Reopen it before saving."); return false; }
         var list = (current ?? new TaskList { Id = Ids.Next(), CreatedAt = state.Now }) with
         {
-            Name = name, Icon = string.IsNullOrWhiteSpace(_icon.Text) ? null : _icon.Text.Trim(),
+            Name = name, Icon = TaskListIcons.ToStored(_icon, current?.Icon),
             Pinned = _pinned.IsChecked == true, UpdatedAt = NextStamp(current?.UpdatedAt ?? 0, state.Now),
         };
         if (current != null && current.Name != name)

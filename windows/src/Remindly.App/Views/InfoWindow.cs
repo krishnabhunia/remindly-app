@@ -279,7 +279,7 @@ public sealed class InfoWindow : Window
         if (cloud == null) return "Google sign-in and Firestore sync with the Android app · not running in this session";
         if (cloud.ConfigurationError != null) return "Google sign-in is not set up in this build · data stays on this PC";
         return cloud.SignedIn
-            ? $"Google account {cloud.Email ?? "(signed in)"} · Firestore live sync with the Android app · {cloud.Sync?.Status}"
+            ? $"Google account {cloud.Email ?? "(signed in)"} · Firestore live sync with the Android app · {SyncStatusText.Label(cloud.Sync?.Status)}"
             : "Google sign-in and Firestore live sync with the Android app · not signed in";
     }
 

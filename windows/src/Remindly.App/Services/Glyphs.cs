@@ -29,4 +29,6 @@ public static class Glyphs
     public const string ChevronRight = "";
     public const string Info = "";
     public const string Copy = "";
+    public const string Cloud = "\uE753";
+    public const string Pin = "\uE718";
 }
