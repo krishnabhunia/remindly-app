@@ -3,7 +3,7 @@ What the Remindly Windows app can do today, and the version that first had it (s
 | SrNo. | Area | What it does | Since |
 |---|---|---|---|
 | 1 | Tasks | Quick add, Active / Done, grouped Overdue · Today · Tomorrow · later days, priorities, snooze and Personal items. | 2.11.0 |
-| 2 | Repeats | Daily, weekly on days or "second Monday / last Friday", monthly, quarterly, yearly, every N, spaced revision and end after N times; a done repeat comes back on its next day. | 2.11.0 |
+| 2 | Repeats | Daily, weekly on days, monthly on days or "second Monday / last Friday", quarterly, yearly, every N, spaced revision and end after N times; a done repeat comes back on its next day. | 2.11.0 |
 | 3 | Learn | Learning items in their own Learn section, with the same priorities and repeats, including spaced revision. | 2.11.0 |
 | 4 | Calls | Call-back reminders; the reminder card offers Call and WhatsApp. | 2.11.0 |
 | 5 | Buy lists | Buy opens on your lists: what is left, progress, where items are bought, an estimated total and the shopping day; sort, pin, private lists. | 2.11.0 |

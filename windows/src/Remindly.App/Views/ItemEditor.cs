@@ -72,8 +72,8 @@ public sealed class ItemEditor : EditorWindow
         _orig = item; _isNew = isNew; _chooseDestination = chooseDestination;
         var state = AppState.Current;
         EnableUnsavedGuard();
-        if (item.Tab == Tab.TASKS) Form.Children.Add(Ui.Sub("Tasks / " + (item.Group ?? "Choose a list")));
-        WorkspaceUi.Identify(_title, "task-editor-title", "Task name");
+        if (item.Tab == Tab.TASKS) Form.Children.Add(Ui.Sub("Tasks / " + (_chooseDestination ? "Choose a list" : item.Group ?? "Unsorted")));
+        WorkspaceUi.Identify(_title, "task-editor-title", item.Tab == Tab.TASKS ? "Task name" : "Item name");
         _title.Text = item.Title; Field("Title", _title); _title.TextChanged += (_, _) => CheckDuplicate();
         if (item.Tab == Tab.TASKS) BuildTaskList(item, state);
         if (item.Tab == Tab.SHOP) BuildBuy(item, state);
@@ -124,7 +124,7 @@ public sealed class ItemEditor : EditorWindow
                 AcceptAndClose();
             }, style: "Danger"));
         }
-        AddButtons(isNew ? "Add task" : "Save changes", extra.ToArray());
+        AddButtons(isNew ? (item.Tab == Tab.TASKS ? "Add task" : "Add") : "Save changes", extra.ToArray());
         Loaded += (_, _) => { _title.Focus(); _title.SelectAll(); UpdatePreview(); CheckDuplicate(); };
     }
 
