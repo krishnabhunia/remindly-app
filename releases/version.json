@@ -1,9 +1,9 @@
 {
-  "versionCode": 219009999,
-  "versionName": "2.19.0",
-  "apk": "Remindly_2.19.0.apk",
-  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.19.0/Remindly_2.19.0.apk",
-  "sha256": "ebf619def2749074ac82b2b4e0465dbeff42d3c4cfe8b23096ad6731251ab99b",
+  "versionCode": 220009999,
+  "versionName": "2.20.0",
+  "apk": "Remindly_2.20.0.apk",
+  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.20.0/Remindly_2.20.0.apk",
+  "sha256": "f82fdbba1c61d93e1e8f4f58588ea339bdde2f760b8d6ea0dccf564db420fe71",
   "sizeBytes": 16595713,
-  "notes": "New\n\u2022 Pinned lists sit under a Pinned heading above All lists, with a pin icon instead of the word \"Pinned\".\n\u2022 Inside a list, a \u22ef button next to Edit list\u2026 offers Edit list, Pin / Unpin and Delete list.\n\u2022 Esc goes back from a list (as Alt+Left does), unless you are typing in a box.\n\u2022 List icons: Edit list now has an icon picker instead of a text box. An icon set on the phone is kept.\n\u2022 Calls, Shops and Products: one click on the name opens it for editing, like tasks and lists.\nChanged\n\u2026"
+  "notes": "New\n\u2022 Tick a task and it does what the phone does: a green \"Moving to Done in 3s \u00b7 UNDO\" chip counts down (the phone's delay for that tab), then a green tick pops over the card, it shrinks away and the gap closes. Nothing is saved until the countdown ends; UNDO or unticking keeps it. Works in all four designs, in Buy, the Today Hub and Calls.\n\u2022 Untick in Done and the card slides out and comes back in Active with a short glow. The Active / Done count pops.\n\u2022 With the phone's delay Off, the tick plays at once and a \"Moved to Done \u00b7 Undo\" snackbar follows.\n\u2026"
 }
