@@ -10,12 +10,10 @@ public static class AppPaths
     /// <summary>Overridable (tests, --data-dir). Default: %LOCALAPPDATA%\Remindly — shared by the installed and the portable copy.</summary>
     public static string DataRoot { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), "Remindly");
-
     public static string DataFile => Path.Combine(DataRoot, "remindly-data.json");
     public static string BackupDir => Path.Combine(DataRoot, "backups");
     public static string UpdatesDir => Path.Combine(DataRoot, "updates");
     public static string LogFile => Path.Combine(DataRoot, "remindly.log");
-
     public static void Ensure()
     {
         Directory.CreateDirectory(DataRoot);
@@ -26,11 +24,9 @@ public static class AppPaths
 public static class Log
 {
     private static readonly object Gate = new();
-
     public static void Info(string msg) => Write("INFO", msg);
     public static void Warn(string msg) => Write("WARN", msg);
     public static void Error(string msg, Exception? ex = null) => Write("ERROR", ex == null ? msg : $"{msg}: {ex}");
-
     private static void Write(string level, string msg)
     {
         try
@@ -62,13 +58,10 @@ public static class Json
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
     };
-
     public static string Serialize(RemindlyData d) => JsonSerializer.Serialize(d, Options);
-
     public static RemindlyData? Deserialize(string json) => JsonSerializer.Deserialize<RemindlyData>(json, Options);
 }
 
-/// <summary>Gson writes a null list as null; an old record may even hold a single string. Both read as a list.</summary>
 internal sealed class LenientStringListConverter : JsonConverter<List<string>>
 {
     public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -85,7 +78,6 @@ internal sealed class LenientStringListConverter : JsonConverter<List<string>>
         }
         return list;
     }
-
     public override void Write(Utf8JsonWriter writer, List<string> value, JsonSerializerOptions options)
     {
         writer.WriteStartArray();
@@ -94,13 +86,9 @@ internal sealed class LenientStringListConverter : JsonConverter<List<string>>
     }
 }
 
-/// <summary>What an import brought in.</summary>
 public sealed record ImportSummary(int Items, int Calls, int Lists, int Shops, int Products, bool FromAndroid);
 
-/// <summary>
-/// Loads, heals and saves remindly-data.json. Saves are atomic (temp file + replace) and the previous
-/// file is kept as a dated backup (last 7), exactly like Android's remindly-data-* rotation.
-/// </summary>
+/// <summary>Atomic local saves, recoverable backups, and per-record merges.</summary>
 public static class DataStore
 {
     public static RemindlyData Load()
@@ -143,7 +131,6 @@ public static class DataStore
         File.WriteAllText(tmp, json, new UTF8Encoding(false));
         if (File.Exists(AppPaths.DataFile))
         {
-            // One backup per day: the first save of the day copies yesterday's state aside.
             var daily = Path.Combine(AppPaths.BackupDir, $"remindly-data-{DateTime.Now:yyyy-MM-dd}.json");
             try { if (!File.Exists(daily)) File.Copy(AppPaths.DataFile, daily); } catch { }
             File.Replace(tmp, AppPaths.DataFile, null);
@@ -162,10 +149,6 @@ public static class DataStore
         catch { }
     }
 
-    /// <summary>
-    /// Makes any loaded document safe: nulls from Gson become empties, names are trimmed, the Bin
-    /// is purged after 30 days, Buy groups become lists (2.11) and the device tag is set.
-    /// </summary>
     public static RemindlyData Heal(RemindlyData d, long now)
     {
         d.Items = (d.Items ?? new()).Where(i => i != null).Select(i => i with
@@ -207,6 +190,8 @@ public static class DataStore
         var s = d.Settings ?? new AppSettings();
         s = s with
         {
+            TaskLists = TaskLists.Merge(Array.Empty<TaskList>(), s.TaskLists),
+            TasksGroups = s.TasksGroups ?? new(),
             ShopLists = (s.ShopLists ?? new()).Where(l => l != null).Select(ShopLists.Heal).ToList(),
             CloudHiddenDeletedItemIds = s.CloudHiddenDeletedItemIds ?? new(),
             CloudHiddenDeletedCallIds = s.CloudHiddenDeletedCallIds ?? new(),
@@ -224,13 +209,10 @@ public static class DataStore
             Design = Designs.Normalize(s.Design),
         };
         Ids.InitTag(s.DeviceTag);
-
-        // The Bin keeps deleted records for 30 days.
         long cutoff = ItemRules.PurgeCutoff(now);
         d.Items = d.Items.Where(i => i.DeletedAt is not long t || t >= cutoff).ToList();
         d.Calls = d.Calls.Where(c => c.DeletedAt is not long t || t >= cutoff).ToList();
 
-        // 2.11: Buy groups → lists; items stamped with their list.
         var seed = ShopLists.Seed(d.Items, s.ShopLists, s.ShopGroups, s.GroupIcons, s.ShopGroupOrder, s.ShopDefaultGroup, s.ShopDefaultListId, now);
         if (seed.Items.Count > 0)
         {
@@ -238,10 +220,10 @@ public static class DataStore
             d.Items = d.Items.Select(i => changed.TryGetValue(i.Id, out var c) ? c : i).ToList();
         }
         d.Settings = ShopLists.MirrorIntoSettings(s with { ShopLists = seed.Lists, ShopDefaultListId = seed.DefaultListId });
+        TaskLists.Normalize(d, now);
         return d;
     }
 
-    /// <summary>Reads a backup: a Windows export or an Android "remindly-data-*.json". Null when the file is not Remindly's.</summary>
     public static RemindlyData? Parse(string json)
     {
         try
@@ -260,10 +242,6 @@ public static class DataStore
 
     public static bool LooksLikeAndroid(RemindlyData blob) => blob.Shops.Count == 0 && blob.Products.Count == 0 && blob.FiredKeys.Count == 0;
 
-    /// <summary>
-    /// Imports a backup INTO the current data: records merge by id, the newer updatedAt wins, so
-    /// importing twice changes nothing. Windows-only settings (updates, tray, start-up) stay as they are.
-    /// </summary>
     public static ImportSummary MergeInto(RemindlyData current, RemindlyData incoming, long now)
     {
         var inc = Heal(incoming, now);
@@ -284,10 +262,12 @@ public static class DataStore
         current.Chains = mergedChains;
 
         var s = current.Settings;
-        int listsBefore = ShopLists.Live(s.ShopLists).Count;
+        int listsBefore = ShopLists.Live(s.ShopLists).Count + TaskLists.Live(s.TaskLists).Count;
         var mergedLists = ShopLists.Merge(s.ShopLists, inc.Settings.ShopLists);
         s = s with
         {
+            TaskLists = TaskLists.Merge(s.TaskLists, inc.Settings.TaskLists),
+            TasksGroups = (s.TasksGroups ?? new()).Concat(inc.Settings.TasksGroups).Distinct().ToList(),
             ShopLists = mergedLists,
             ShopDefaultListId = s.ShopDefaultListId ?? inc.Settings.ShopDefaultListId,
             ShareIncludeDone = inc.Settings.ShareIncludeDone,
@@ -300,11 +280,10 @@ public static class DataStore
         var healed = Heal(current, now);
         current.Items = healed.Items;
         current.Settings = healed.Settings;
-        int lists = ShopLists.Live(current.Settings.ShopLists).Count - listsBefore;
+        int lists = ShopLists.Live(current.Settings.ShopLists).Count + TaskLists.Live(current.Settings.TaskLists).Count - listsBefore;
         return new ImportSummary(items, calls, Math.Max(0, lists), shops, products, LooksLikeAndroid(incoming));
     }
 
-    /// <summary>One record per id (the most recently updated), first-seen order kept.</summary>
     internal static List<T> DedupeById<T>(List<T> list, Func<T, long> id, Func<T, long> updatedAt)
     {
         var best = new Dictionary<long, T>();
@@ -317,7 +296,6 @@ public static class DataStore
         return order.Count == list.Count ? list : order.Select(k => best[k]).ToList();
     }
 
-    /// <summary>Latest-wins per id; returns how many records were added or replaced.</summary>
     internal static int MergeById<T>(List<T> local, List<T> incoming, Func<T, long> id, Func<T, long> updatedAt, out List<T> merged)
     {
         var byId = new Dictionary<long, T>();

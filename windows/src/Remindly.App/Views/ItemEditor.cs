@@ -6,7 +6,6 @@ using Remindly.Core;
 
 namespace Remindly.App.Views;
 
-/// <summary>The item editor for Tasks, Learn and Buy — due date, reminder type, repeat, priority and the tab's own fields.</summary>
 public sealed class ItemEditor : EditorWindow
 {
     private static readonly string[] Priorities = { "None", "Low", "Medium", "High", "Urgent" };
@@ -21,7 +20,6 @@ public sealed class ItemEditor : EditorWindow
     private static readonly string[] Platforms = { "Online", "Offline", "Internet", "LinkedIn Learning", "Udemy" };
     private static readonly string[] WeekDays = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
     private static readonly string[] Ords = { "First", "Second", "Third", "Fourth", "Last" };
-
     private readonly Item _orig;
     private readonly bool _isNew;
     private readonly TextBox _title = new();
@@ -43,7 +41,7 @@ public sealed class ItemEditor : EditorWindow
     private readonly TextBox _repeatCount = new() { Width = 60 };
     private readonly TextBlock _preview = Ui.Sub("");
     private readonly CheckBox _personal = new() { Content = "Personal (hidden in reminders)" };
-    // Buy
+    private ComboBox? _taskList;
     private ComboBox? _list;
     private TextBox? _qty;
     private ComboBox? _unit;
@@ -53,7 +51,6 @@ public sealed class ItemEditor : EditorWindow
     private TextBox? _lapse;
     private ComboBox? _lapseUnit;
     private CheckBox? _staple;
-    // Learn
     private ComboBox? _platform;
     private TextBox? _url;
     private TextBox? _topic;
@@ -65,6 +62,11 @@ public sealed class ItemEditor : EditorWindow
         var state = AppState.Current;
         var item = state.NewItem(tab, title);
         if (dueAt is long due) item = item with { DueAt = due, DueHasTime = true };
+        if (tab == Tab.TASKS && listId is long taskId)
+        {
+            var taskList = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == taskId);
+            item = item with { ListId = taskList?.Id, Group = taskList?.Name };
+        }
         if (tab == Tab.SHOP)
         {
             var list = listId is long l && l >= 0 ? state.List(l) : (listId == null && state.Settings.ShopDefaultListId is long d ? state.List(d) : null);
@@ -73,7 +75,6 @@ public sealed class ItemEditor : EditorWindow
         }
         new ItemEditor(item, isNew: true).Open();
     }
-
     public static void Edit(Item item) => new ItemEditor(item, isNew: false).Open();
 
     private ItemEditor(Item item, bool isNew) : base((isNew ? "New " : "Edit ") + (item.Tab switch { Tab.SHOP => "Buy item", Tab.LEARN => "Learn item", _ => "task" }), 560)
@@ -81,21 +82,17 @@ public sealed class ItemEditor : EditorWindow
         _orig = item;
         _isNew = isNew;
         var state = AppState.Current;
-
         _title.Text = item.Title;
         Field("Title", _title);
         _title.TextChanged += (_, _) => CheckDuplicate();
-
+        if (item.Tab == Tab.TASKS) BuildTaskList(item, state);
         if (item.Tab == Tab.SHOP) BuildBuy(item, state);
         if (item.Tab == Tab.LEARN) BuildLearn(item);
-
         Field("Notes", _notes);
         _notes.Text = item.Notes;
-
         _priority = Combo(Priorities, PriorityNames.Label(item.Priority));
         _alert = Combo(AlertTypes, item.AlertType == "OFF" ? "Muted" : item.AlertType.Contains('R') || item.AlertType.Contains('A') ? "Ring" : "Notify");
         Form.Children.Add(TwoColumns(Labeled("Priority", _priority), Labeled("Reminder", _alert)));
-
         Section("When");
         var local = item.DueAt is long due ? Clock.ToLocal(due) : DateTime.Today.AddHours(state.Settings.DefaultDueHour);
         _hasDue.IsChecked = item.DueAt != null;
@@ -107,14 +104,12 @@ public sealed class ItemEditor : EditorWindow
         _hasDue.Click += (_, _) => { _date.IsEnabled = _time.IsEnabled = _hasDue.IsChecked == true; UpdatePreview(); };
         _date.SelectedDateChanged += (_, _) => UpdatePreview();
         _time.TextChanged += (_, _) => UpdatePreview();
-
         _repeat = new ComboBox();
         foreach (var (_, label) in RepeatModes) _repeat.Items.Add(label);
         _repeat.SelectedIndex = Math.Max(0, Array.FindIndex(RepeatModes, m => m.Code == item.RepeatMode));
         _repeat.SelectionChanged += (_, _) => { BuildRepeatExtra(); UpdatePreview(); };
         Field("Repeat", _repeat);
         Form.Children.Add(_repeatExtra);
-        // repeat details from the item
         foreach (var d in item.RepeatDays.Where(d => d is >= 1 and <= 7)) _weekDays[d - 1].IsChecked = true;
         _monthDays.Text = string.Join(",", item.RepeatDays.Where(d => d is >= 1 and <= 31));
         var pat = item.RepeatOrdList.Count > 0 ? item.RepeatOrdList[0] : item.RepeatOrd * 10 + item.RepeatDow;
@@ -130,11 +125,9 @@ public sealed class ItemEditor : EditorWindow
         _everyUnit.SelectionChanged += (_, _) => UpdatePreview();
         BuildRepeatExtra();
         Form.Children.Add(_preview);
-
         _personal.IsChecked = item.Personal;
         _personal.Margin = new Thickness(0, 12, 0, 0);
         Form.Children.Add(_personal);
-
         var extra = new List<Button>();
         if (!isNew)
         {
@@ -150,6 +143,20 @@ public sealed class ItemEditor : EditorWindow
         Loaded += (_, _) => { _title.Focus(); _title.SelectAll(); UpdatePreview(); CheckDuplicate(); };
     }
 
+    private sealed record TaskChoice(long? Id, string Label);
+    private void BuildTaskList(Item item, AppState state)
+    {
+        _taskList = new ComboBox { DisplayMemberPath = "Label" };
+        _taskList.Items.Add(new TaskChoice(null, "Unsorted"));
+        foreach (var list in TaskLists.Live(state.Settings.TaskLists).OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            _taskList.Items.Add(new TaskChoice(list.Id, (list.Icon == null ? "" : list.Icon + " ") + list.Name));
+        long? selected = item.ListId ?? TaskLists.ListIdOf(item, state.Settings.TaskLists);
+        if (selected != null && !_taskList.Items.Cast<TaskChoice>().Any(c => c.Id == selected))
+            _taskList.Items.Add(new TaskChoice(selected, "List metadata not available — keep existing membership"));
+        _taskList.SelectedItem = _taskList.Items.Cast<TaskChoice>().First(c => c.Id == selected);
+        Field("Task list", _taskList);
+    }
+
     private void BuildBuy(Item item, AppState state)
     {
         var lists = state.Lists.OrderBy(l => l.Order).ThenBy(l => l.Name).ToList();
@@ -160,7 +167,6 @@ public sealed class ItemEditor : EditorWindow
         _list.SelectedItem = _list.Items.Cast<ListChoice>().FirstOrDefault(c => c.List?.Id == current) ?? _list.Items[0];
         _list.SelectionChanged += (_, _) => CheckDuplicate();
         Field("List", _list);
-
         _product = Combo(state.Products.Select(p => p.Name), state.Products.FirstOrDefault(p => p.Id == item.ProductId)?.Name ?? "", editable: true);
         _product.SelectionChanged += (_, _) =>
         {
@@ -199,9 +205,7 @@ public sealed class ItemEditor : EditorWindow
     }
 
     private sealed record ListChoice(ShopList? List, string Label);
-
     private string RepeatCode => RepeatModes[Math.Max(0, _repeat.SelectedIndex)].Code;
-
     private void BuildRepeatExtra()
     {
         _repeatExtra.Children.Clear();
@@ -232,7 +236,6 @@ public sealed class ItemEditor : EditorWindow
         }
     }
 
-    /// <summary>The draft with the form's schedule (null when the date / time is invalid).</summary>
     private Item? ScheduleDraft(Item baseItem, out string? error)
     {
         error = null;
@@ -265,15 +268,11 @@ public sealed class ItemEditor : EditorWindow
         var ordPat = (Math.Max(0, _ord.SelectedIndex) + 1) * 10 + Math.Max(0, _ordDow.SelectedIndex) + 1;
         return baseItem with
         {
-            DueAt = dueAt,
-            DueHasTime = dueAt == null || hasTime,
-            RepeatMode = mode,
-            RepeatDays = days,
-            RepeatN = n,
+            DueAt = dueAt, DueHasTime = dueAt == null || hasTime, RepeatMode = mode,
+            RepeatDays = days, RepeatN = n,
             RepeatUnit = _everyUnit.SelectedIndex switch { 1 => "W", 2 => "M", _ => "D" },
             RepeatOrdList = mode == "MONTHLY_ORD" ? new List<int> { ordPat } : new List<int>(),
-            RepeatOrd = ordPat / 10,
-            RepeatDow = ordPat % 10,
+            RepeatOrd = ordPat / 10, RepeatDow = ordPat % 10,
             RepeatCount = Recurrence.SanitizeCount(int.TryParse(_repeatCount.Text.Trim(), out var rc) ? rc : null),
         };
     }
@@ -287,7 +286,6 @@ public sealed class ItemEditor : EditorWindow
         var next = Recurrence.Preview(d, AppState.Current.Now);
         _preview.Text = next.Count == 0 ? "" : "Next: " + string.Join("  ·  ", next.Select(Clock.FormatDayTime));
     }
-
     private void CheckDuplicate()
     {
         var state = AppState.Current;
@@ -313,14 +311,24 @@ public sealed class ItemEditor : EditorWindow
         var pr = Array.IndexOf(Priorities, _priority.SelectedItem as string ?? "None");
         d = d with
         {
-            Title = title,
-            Notes = _notes.Text.Trim(),
+            Title = title, Notes = _notes.Text.Trim(),
             Priority = pr switch { 1 => Priority.LOW, 2 => Priority.MEDIUM, 3 => Priority.HIGH, 4 => Priority.URGENT, _ => null },
             AlertType = (_alert.SelectedItem as string) switch { "Ring" => "R", "Muted" => "OFF", _ => "N" },
             Personal = _personal.IsChecked == true,
-            // A new schedule starts clean: no leftover snooze from the old one.
             SnoozedUntil = d.DueAt != _orig.DueAt ? null : _orig.SnoozedUntil,
         };
+        if (_orig.Tab == Tab.TASKS && _taskList?.SelectedItem is TaskChoice choice)
+        {
+            var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == choice.Id);
+            if (choice.Id != null && list == null)
+            {
+                if (_isNew || choice.Id != _orig.ListId)
+                { ShowWarning("That list is no longer available. Select another task list."); return false; }
+                // An item can arrive before settings. Editing it must not clear its list ID.
+                d = d with { ListId = _orig.ListId, Group = _orig.Group };
+            }
+            else d = d with { ListId = list?.Id, Group = list?.Name };
+        }
         if (_orig.Tab == Tab.SHOP)
         {
             var list = (_list?.SelectedItem as ListChoice)?.List;
@@ -336,16 +344,12 @@ public sealed class ItemEditor : EditorWindow
             int? lapse = int.TryParse(_lapse?.Text.Trim(), out var lv) && lv > 0 ? Math.Min(lv, 3650) : null;
             d = d with
             {
-                ListId = list?.Id,
-                Group = list?.Name,
-                Personal = d.Personal || list?.Personal == true,
+                ListId = list?.Id, Group = list?.Name, Personal = d.Personal || list?.Personal == true,
                 Quantity = string.IsNullOrWhiteSpace(_qty?.Text) ? null : _qty!.Text.Trim(),
                 Unit = string.IsNullOrWhiteSpace(_unit?.Text) ? null : _unit!.Text.Trim(),
                 Price = string.IsNullOrWhiteSpace(_price?.Text) ? null : _price!.Text.Trim(),
                 ShopName = shopName.Length == 0 ? null : shop?.Name ?? shopName,
-                ShopId = shop?.Id,
-                ProductId = product?.Id,
-                LapseValue = lapse,
+                ShopId = shop?.Id, ProductId = product?.Id, LapseValue = lapse,
                 LapseUnit = lapse == null ? null : _lapseUnit?.SelectedIndex == 1 ? LapseUnit.MONTHS : LapseUnit.DAYS,
                 Staple = _staple?.IsChecked == true,
             };
