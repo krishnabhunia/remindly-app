@@ -155,10 +155,11 @@ public static class ItemRules
         long? Cut(int days) => days <= 0 ? null : now - days * 86_400_000L;
         bool Protected(Item i) => i.Tab == Tab.SHOP && (i.ReturnAt is long r && r > now ||
             i.ExpiryAt is long e && Clock.FromLocal(Clock.LocalDate(e, zone).AddHours(9), zone) > now);
+        // A record restored from the Bin (or edited) since it was done gets a fresh retention period, so a restore sticks.
         var clearItems = items.Where(i => i.Done && i.DeletedAt == null && i.DoneAt is long done &&
-                Cut(phone.ClearDays(i.Tab)) is long cut && done < cut && !Protected(i)).ToList();
+                Cut(phone.ClearDays(i.Tab)) is long cut && Math.Max(done, i.UpdatedAt) < cut && !Protected(i)).ToList();
         var clearCalls = calls.Where(c => c.Done && c.DeletedAt == null && c.DoneAt is long done &&
-                Cut(phone.ClearDays(null)) is long cut && done < cut).ToList();
+                Cut(phone.ClearDays(null)) is long cut && Math.Max(done, c.UpdatedAt) < cut).ToList();
         return (clearItems, clearCalls);
     }
 

@@ -211,6 +211,11 @@ public class PhonePrefsTests
         Assert.Equal(new long[] { 1 }, clearItems.Select(i => i.Id));
         Assert.Equal(new long[] { 9 }, clearCalls.Select(c => c.Id));
         Assert.Empty(ItemRules.AutoClearDue(items, calls, new PhonePrefs(), now, T.Zone).Items);
+        // Restored from the Bin today: a fresh retention period, so it is not cleared again at the next sweep.
+        var restored = new[] { items[0] with { UpdatedAt = now }, };
+        var restoredCall = new[] { calls[0] with { UpdatedAt = now } };
+        Assert.Empty(ItemRules.AutoClearDue(restored, restoredCall, phone, now, T.Zone).Items);
+        Assert.Empty(ItemRules.AutoClearDue(restored, restoredCall, phone, now, T.Zone).Calls);
     }
 
     [Fact]

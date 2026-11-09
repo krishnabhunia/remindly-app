@@ -439,16 +439,21 @@ internal sealed class CommandShell : IShell
         long now = state.Now;
         _side.Children.Clear();
         var sel = _m.SelectedTab;
+        // The task quick views open Tasks, so they follow the phone's Visible tabs too (approved S8).
         if (!_m.IsShop)
         {
-            _side.Children.Add(Caption("Views"));
-            var tasks = state.LiveItems(Tab.TASKS).ToList();
-            foreach (var f in ItemsView.QuickViews)
+            if (state.Phone.ShowTasks)
             {
-                var code = f.Code;
-                int n = tasks.Count(i => ItemsView.Matches(code, i, now));
-                _side.Children.Add(Entry(f.Label, n.ToString(CultureInfo.InvariantCulture), sel == _m.TasksTab && ItemsView.CommandView == code,
-                    () => { ItemsView.CommandView = code; _m.Go(_m.TasksTab); }, Theme.Brush(f.Dot)));
+                _side.Children.Add(Caption("Views"));
+                var tasks = state.LiveItems(Tab.TASKS).ToList();
+                foreach (var f in ItemsView.QuickViews)
+                {
+                    var code = f.Code;
+                    int n = tasks.Count(i => ItemsView.Matches(code, i, now));
+                    _side.Children.Add(Entry(f.Label, state.Phone.Badges ? n.ToString(CultureInfo.InvariantCulture) : null,
+                        sel == _m.TasksTab && ItemsView.CommandView == code,
+                        () => { ItemsView.CommandView = code; _m.Go(_m.TasksTab); }, Theme.Brush(f.Dot)));
+                }
             }
             _side.Children.Add(Caption("Sections"));
             foreach (var e in _m.NavEntries())

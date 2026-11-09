@@ -494,8 +494,7 @@ public sealed partial class ItemsView : DockPanel, IPage
     {
         var check = Ui.Check(item.Done || DoneFlow.IsBusy(DoneFlow.Key(item)), on => Toggle(item, on), tip);
         WorkspaceUi.Identify(check, $"complete-task-{item.Id}", tip + ": " + item.Title);
-        check.Click += (_, e) => e.Handled = true;
-        if (!Parts(item).Checkbox) check.Visibility = Visibility.Collapsed;
+        check.Click += (_, e) => e.Handled = true;   // compact rows have no ⋯ menu, so their checkbox always stays
         return check;
     }
     private static void Snooze(Item item)

@@ -298,6 +298,17 @@ internal static class TaskWorkspaceSmoke
         Click(Require<Button>(main, $"done-undo-call-{call.Id}"));
         await Idle();
         check(!state.LiveCalls().First(c => c.Id == call.Id).Done, "Calls: UNDO keeps the call-back active");
+        // With the phone's checkbox hidden on Calls cards, the ✓ button still completes the call-back.
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TabCardOv = new() { ["cCardCheckbox"] = "OFF" } } });
+        await Idle();
+        check(Require<CheckBox>(main, $"complete-call-{call.Id}").Visibility == Visibility.Collapsed, "Calls: Card details hides the checkbox");
+        Click(Require<Button>(main, $"done-call-{call.Id}"));
+        await Idle();
+        check(DoneFlow.IsPending(DoneFlow.Key(call)), "Calls: ✓ button starts the countdown when the checkbox is hidden");
+        Click(Require<Button>(main, $"done-undo-call-{call.Id}"));
+        await Idle();
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TabCardOv = new() } });
+        await Idle();
 
         // Visible tabs and Settings → Follows your phone.
         state.UpdateSettings(s => s with { Phone = s.Phone with { ShowLearn = false } });

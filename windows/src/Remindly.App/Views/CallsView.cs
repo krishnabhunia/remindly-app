@@ -55,7 +55,7 @@ public sealed class CallsView : DockPanel, IPage
         var state = AppState.Current;
         // Same Move-to-Done flow as tasks, with the phone's Calls delay (approved M1–M4).
         var key = DoneFlow.Key(c);
-        var check = Ui.Check(c.Done || DoneFlow.IsBusy(key), on =>
+        void SetDone(bool on)
         {
             if (!on && DoneFlow.IsPending(key)) { DoneFlow.Cancel(key); return; }
             var before = state.LiveCalls().FirstOrDefault(x => x.Id == c.Id);
@@ -79,7 +79,8 @@ public sealed class CallsView : DockPanel, IPage
                 state.UpsertCall(current with { Done = false, DoneAt = null });
                 App.Current.Main.Snack("Back to Active", () => state.UpsertCall(current));
             });
-        }, "Called back");
+        }
+        var check = Ui.Check(c.Done || DoneFlow.IsBusy(key), SetDone, "Called back");
         WorkspaceUi.Identify(check, $"complete-call-{c.Id}", "Called back: " + c.Display);
 
         var titleRow = new WrapPanel();
@@ -128,6 +129,14 @@ public sealed class CallsView : DockPanel, IPage
                 state.UpsertCall(c with { DeletedAt = state.Now });
                 App.Current.Main.Snack("Moved to the Bin", () => state.UpsertCall(c));
             }, "Delete"));
+        // With the phone's checkbox hidden the card still needs a way to mark it done or bring it back.
+        if (check.Visibility == Visibility.Collapsed)
+        {
+            bool busy = DoneFlow.IsBusy(key);
+            var toggle = WorkspaceUi.Identify(Ui.IconBtn(c.Done ? "↺" : "✓", () => SetDone(!(c.Done || DoneFlow.IsBusy(key))),
+                c.Done ? "Back to Active" : busy ? "Undo" : "Called back — mark done"), $"done-call-{c.Id}", c.Done ? "Back to Active" : "Mark called back");
+            actions.Children.Insert(0, toggle);
+        }
         var body = Ui.Stack(titleRow, metaText);
         if (DoneFlow.Strip(key) is { } strip) body.Children.Add(strip);
         return DoneFlow.Track(Ui.Card(Ui.Columns("Auto,*,Auto", check, body, actions), () => CallEditor.OpenFor(c)), key);

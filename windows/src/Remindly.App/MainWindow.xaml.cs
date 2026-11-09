@@ -220,6 +220,7 @@ public partial class MainWindow : Window
     public void Go(TabItem tab)
     {
         if (tab == TodayTab && !HubDesign) tab = TasksTab;
+        if (HiddenByPhone(tab)) tab = FirstTaskTab();   // never open a tab the phone hides (quick views, shortcuts, alerts)
         if (tab == OverviewTab && !HubDesign) tab = BuyTab;
         bool shopTab = tab == BuyTab || tab == ShopsTab || tab == ProductsTab || tab == OverviewTab;
         bool taskTab = tab == TasksTab || tab == LearnTab || tab == CallsTab || tab == TodayTab;
