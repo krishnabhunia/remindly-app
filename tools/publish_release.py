@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from release import verify_package
+from release_notes import load_release_pulls, release_text
 
 
 def command(*args, capture=False, check=True):
@@ -33,10 +34,14 @@ def main():
     tag = plan["tag"]
     sha = os.environ["RELEASE_SHA"]
     beta = plan["channel"] == "beta"
+    full_notes = release_text(plan["version"], load_release_pulls(sha))
+    notes_path = Path(args.dist) / "release-notes.md"
+    notes_path.write_text(full_notes, encoding="utf-8")
+    user_summary = " ".join(line[2:] for line in full_notes.splitlines() if line.startswith("- "))[:1300]
     manifest = {"versionCode": plan["code"], "versionName": plan["version"], "apk": apk.name,
                 "apkUrl": f"https://github.com/{repo}/releases/download/{tag}/{apk.name}",
                 "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(), "sizeBytes": apk.stat().st_size,
-                "notes": "Task lists first, unified downloads and optional beta updates."}
+                "notes": user_summary}
     manifest_file = Path(args.dist) / "version.json"
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
     info = gh("release", "view", tag, "--json", "isDraft,targetCommitish", capture=True, check=False)
@@ -54,8 +59,7 @@ def main():
         flags = ["--prerelease"] if beta else []
         gh("release", "create", tag, str(archive), str(archive) + ".sha256", str(apk), str(manifest_file),
            "--draft", "--latest=false", "--target", sha, "--title", f"Remindly {plan['version']}",
-           "--notes", f"Download {archive.name} and extract once. portable/ is the Windows app; windows-x64/ is the Windows installer; Android/ is the APK. macOS/ is reserved and empty. "
-           + ("Optional beta preview; stable updates are unchanged." if beta else "Stable release."), *flags)
+           "--notes-file", str(notes_path), *flags)
     gh("release", "edit", tag, "--draft=false", f"--prerelease={'true' if beta else 'false'}", f"--latest={'false' if beta else 'true'}")
     if beta:
         # Separate pointer: beta publication never commits to main or changes the stable feed.

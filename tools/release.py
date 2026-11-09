@@ -9,6 +9,7 @@ import subprocess
 import zipfile
 
 SEMVER = re.compile(r"^(?:win-)?v?(\d+)\.(\d+)(?:\.(\d+))?$")
+BETA_TAG = re.compile(r"^v(?P<core>\d+\.\d+\.\d+)-beta(?P<serial>\d{3})$")
 
 
 def parse_stable(tag):
@@ -45,6 +46,27 @@ def android_code(base, beta_build=None):
     return code
 
 
+def next_beta_serial(tags, core):
+    """Reserve the next short beta in a serialized CI run, per x.y.z version.
+
+    Historical PR/run tags stay valid but do not consume three-digit serials.
+    The GitHub Actions beta concurrency group serializes planning through
+    publication, so two pull requests cannot allocate the same serial.
+    """
+    used = set()
+    for tag in tags:
+        match = BETA_TAG.fullmatch(tag.strip())
+        if match and match["core"] == core:
+            number = int(match["serial"])
+            if number == 0:
+                raise ValueError("Beta 000 is reserved")
+            used.add(number)
+    serial = max(used, default=0) + 1
+    if serial > 999:
+        raise ValueError("Three-digit beta series is exhausted; plan the next core version")
+    return serial
+
+
 def plan(event, tags, messages, floor, run_number, already_released=None):
     published = [parse_stable(t) for t in tags]
     base = max([v for v in published if v] or [(2, 11, 0)])
@@ -56,9 +78,10 @@ def plan(event, tags, messages, floor, run_number, already_released=None):
     stable = ".".join(map(str, target))
     pr = event.get("pull_request")
     beta = pr is not None
-    name = f"{stable}-beta.{event['number']}.{run_number}" if beta else stable
+    serial = next_beta_serial(tags, stable) if beta else None
+    name = f"{stable}-beta{serial:03d}" if beta else stable
     return {"base": stable, "version": name, "tag": f"v{name}", "channel": "beta" if beta else "stable",
-            "code": android_code(target, run_number if beta else None), "zip": f"Remindly_{name}.zip"}
+            "code": android_code(target, serial), "zip": f"Remindly_{name}.zip"}
 
 
 def expected_entries(version):

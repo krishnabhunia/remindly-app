@@ -8,7 +8,7 @@ public sealed record ReleaseAsset(string Name, string DownloadUrl, long Size);
 public sealed record ReleaseInfo(Version Version, string TagName, string Name, string HtmlUrl, string? Body, bool Prerelease, List<ReleaseAsset> Assets)
 {
     public string DisplayVersion => TagName.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? TagName[5..] : TagName.TrimStart('v');
-    public bool IsBeta => Prerelease || DisplayVersion.Contains("-beta.", StringComparison.OrdinalIgnoreCase);
+    public bool IsBeta => Prerelease || DisplayVersion.Contains("-beta", StringComparison.OrdinalIgnoreCase);
 }
 
 public enum UpdateStatus { UpToDate, UpdateAvailable, Unavailable }
@@ -40,8 +40,8 @@ public static class UpdateLogic
     public static string ReleasesAtomUrl => ReleasesUrl + ".atom";
 
     public static bool IsWindowsTag(string? tag) => !string.IsNullOrWhiteSpace(tag) &&
-        (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:\.\d+)*)?$", RegexOptions.IgnoreCase) ||
-         Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-beta\.\d+\.\d+)?$", RegexOptions.IgnoreCase));
+        (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:[0-9]{3}|(?:\.\d+)*))?$", RegexOptions.IgnoreCase) ||
+         Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-beta(?:[0-9]{3}|\.\d+\.\d+))?$", RegexOptions.IgnoreCase));
 
     /// <summary>"win-v2.11.0" / "2.11" / "v2.11.1-beta" → 2.11.0 / 2.11.0 / 2.11.1 (always three parts).</summary>
     public static Version? ParseVersion(string? tag)
@@ -69,6 +69,15 @@ public static class UpdateLogic
         var rightBeta = right.Contains("-beta", StringComparison.OrdinalIgnoreCase);
         if (leftBeta != rightBeta) return leftBeta ? -1 : 1;
         if (!leftBeta) return 0;
+
+        // Three-digit beta names are a new, later release generation. Retain all
+        // historical PR/run tags for exact rollback, but rank a short beta above
+        // those old labels for the same core version.
+        static bool ShortBeta(string version) => Regex.IsMatch(version,
+            @"-beta[0-9]{3}(?:\+.*)?$", RegexOptions.IgnoreCase);
+        var leftShort = ShortBeta(left);
+        var rightShort = ShortBeta(right);
+        if (leftShort != rightShort) return leftShort ? 1 : -1;
 
         static string[] Ids(string label)
         {
@@ -192,7 +201,7 @@ public static class UpdateLogic
         var display = tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? tag[5..] : tag.TrimStart('v');
         var unified = $"Remindly_{display}.zip";
         var legacy = ZipName(v);
-        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, tag.Contains("-beta."),
+        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, tag.Contains("-beta", StringComparison.OrdinalIgnoreCase),
             new List<ReleaseAsset>
             {
                 new(unified, Dl(unified), 0), new(unified + ".sha256", Dl(unified + ".sha256"), 0),
