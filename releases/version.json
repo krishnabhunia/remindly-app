@@ -1,9 +1,9 @@
 {
-  "versionCode": 216009999,
-  "versionName": "2.16.0",
-  "apk": "Remindly_2.16.0.apk",
-  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.16.0/Remindly_2.16.0.apk",
-  "sha256": "e08fdbe44579865db677e4b40f73223ac5a6a0e3a7f1c36c5df42def433b54ea",
-  "sizeBytes": 16595493,
-  "notes": "Task lists first, unified downloads and optional beta updates."
+  "versionCode": 217009999,
+  "versionName": "2.17.0",
+  "apk": "Remindly_2.17.0.apk",
+  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.17.0/Remindly_2.17.0.apk",
+  "sha256": "c0d4074a23e0537f6e99b476aa0b7c3b9bc6ad5f7e6146c3d9ee23f930532062",
+  "sizeBytes": 16595489,
+  "notes": "**Implementations (PR #22):** Allocate permanent three-digit beta tags `vX.Y.Z-beta001`\u00e2\u20ac\u201c`beta999` under a serialized workflow; preserve older beta releases and stable release precedence. **Implementations (PR #22):** Publish actual implementation-level details from the associated PR, including feature tables, in the GitHub Release and Android update manifest. Block publication when no changes are documented. **Implementations (PR #22):** Show **What's New / Implementations** for installed Remindly in Windows Settings and per-version implementation previews and details in the Version Manager. **Implementations (PR #22):** Test release sequencing, parser behavior, older beta compatibility, and the documented 2.16.0 Google sign-in/cloud-sync fallback. **Verification (PR #22):** Python release tests: 9 passed locally. **Verification (PR #22):** GitHub Actions [build and release run](https://github.com/krishnabhunia/remindly-app/actions/runs/42003630529): **success**, including .NET unit tests, Windows UI smoke, install/upgrade/uninstall, Android unit tests, APK signing/verification and package integrity. **Verification (PR #22):** Real-device two-way synchronization validation remains a separate manual activity; no merge into `main`. **Verification (PR #22):** GitHub API commit is "
 }
