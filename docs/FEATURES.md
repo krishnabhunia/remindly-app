@@ -28,3 +28,5 @@ What the Remindly Windows app can do today, and the version that first had it (s
 | 24 | Release notes | Settings → Updates → What's New / Implementations shows what a release contains, also for a version chosen in Version history. | 2.17.0 |
 | 25 | Info window | ⓘ next to the version, F1 or Settings → About: this build, what's implemented, what's new and what's under the hood, with Copy build info. | 2.18.0 |
 | 26 | Beta chip | A test build shows a small Beta chip next to the version in every design. | 2.18.0 |
+| 27 | Task-list parity | Windows reads and merges Android task lists, including empty lists, icons and pins. Tasks opens on list cards in all four designs; All tasks and Unsorted remain available. Create, rename or remove lists and select a task's list in its editor. | 2.18.1 |
+| 28 | Full sync retry | Sync now rereads collections instead of relying on device timestamps; scheduled full reads run daily without the deadline sliding on every poll. Late offline changes may require this full read. Invalid cloud records are reported instead of claiming complete sync. | 2.18.1 |
