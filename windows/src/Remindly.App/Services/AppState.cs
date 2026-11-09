@@ -26,6 +26,8 @@ public sealed class AppState
     }
 
     public AppSettings Settings => Data.Settings;
+    /// <summary>The phone's settings Windows follows (read-only on the PC).</summary>
+    public PhonePrefs Phone => Data.Settings.Phone ?? new PhonePrefs();
     public long Now => Clock.NowMs();
 
     public void Save()
@@ -76,6 +78,20 @@ public sealed class AppState
     {
         var now = Now;
         return new Item { Id = Ids.Next(), Tab = tab, Title = title.Trim(), CreatedAt = now, UpdatedAt = now, Priority = tab == Tab.SHOP ? Priority.MEDIUM : null };
+    }
+
+    /// <summary>
+    /// The phone's "new item's due date" (approved S14, Android defaultNewDue): quick adds start with it. The editor
+    /// also applies the phone's default schedule (none / once / repeat daily).
+    /// </summary>
+    public Item WithNewDue(Item item, bool editor = false)
+    {
+        if (item.DueAt != null) return item;
+        var schedule = editor ? Phone.NewSchedule(item.Tab) : "ONCE";
+        if (schedule == "NONE") return item;
+        var (due, timed) = Phone.NewDue(item.Tab, Now);
+        var withDue = due is long at ? item with { DueAt = at, DueHasTime = timed } : item;
+        return schedule == "REPEAT" ? withDue with { RepeatMode = "DAILY" } : withDue;
     }
 
     public string Complete(Item item)
@@ -352,9 +368,21 @@ public sealed class AppState
     /// <summary>Walks due recurring items / returning staples back into Active. True when anything changed.</summary>
     public bool Sweep()
     {
+        var (clearItems, clearCalls) = ItemRules.AutoClearDue(Data.Items, Data.Calls ?? new(), Phone, Now);
+        if (clearItems.Count > 0 || clearCalls.Count > 0)
+        {
+            // The phone's Auto-clear Done items: to the Bin, so it syncs and stays undoable for 30 days.
+            foreach (var c in clearCalls)
+            {
+                int idx = Data.Calls!.FindIndex(x => x.Id == c.Id);
+                if (idx >= 0) Data.Calls[idx] = c with { DeletedAt = Now, UpdatedAt = Now };
+            }
+            if (clearItems.Count > 0) SoftDelete(clearItems); else Commit();
+            Log.Info($"Auto-cleared {clearItems.Count} done item(s) and {clearCalls.Count} call-back(s) (phone setting)");
+        }
         var items = ItemRules.ResurrectDue(Data.Items, Now);
         var calls = ItemRules.ResurrectCallsDue(Data.Calls ?? new(), Now);
-        if (items.Count == 0 && calls.Count == 0) return false;
+        if (items.Count == 0 && calls.Count == 0) return clearItems.Count > 0 || clearCalls.Count > 0;
         foreach (var c in calls)
         {
             int idx = Data.Calls!.FindIndex(x => x.Id == c.Id);

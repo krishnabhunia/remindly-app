@@ -36,7 +36,9 @@ public sealed class ReminderService
         {
             var state = AppState.Current;
             state.Sweep();
-            var due = Reminders.Due(state.Data, state.Now, state.FiredSet());
+            var muted = new List<string>();
+            var due = Reminders.Due(state.Data, state.Now, state.FiredSet(), muted: muted);
+            if (muted.Count > 0) { state.MarkFired(muted); Log.Info($"Alerts off on the phone for: {string.Join(", ", muted)}"); }
             if (due.Count > 0)
             {
                 state.MarkFired(due.Select(a => a.Key));

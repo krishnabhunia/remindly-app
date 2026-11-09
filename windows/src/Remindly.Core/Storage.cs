@@ -207,6 +207,7 @@ public static class DataStore
             DefaultDueHour = Math.Clamp(s.DefaultDueHour, 0, 23),
             DeviceTag = s.DeviceTag is > 0 and <= 0xFFF ? s.DeviceTag : Ids.NewDeviceTag(),
             Design = Designs.Normalize(s.Design),
+            Phone = s.Phone ?? new PhonePrefs(),
         };
         Ids.InitTag(s.DeviceTag);
         long cutoff = ItemRules.PurgeCutoff(now);
@@ -231,7 +232,18 @@ public static class DataStore
             using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
                 return null;
-            return Json.Deserialize(json);
+            var blob = Json.Deserialize(json);
+            // An Android backup carries the phone's settings under "settings" with the Kotlin names: read them read-only.
+            if (blob != null && doc.RootElement.TryGetProperty("settings", out var settings) && settings.ValueKind == JsonValueKind.Object &&
+                !settings.TryGetProperty("pcPhonePrefs", out _))
+            {
+                long at = doc.RootElement.TryGetProperty("exportedAt", out var e) && e.TryGetInt64(out var t) ? t : 0;
+                blob.Settings = blob.Settings with
+                {
+                    Phone = PhonePrefs.FromJson(System.Text.Json.Nodes.JsonNode.Parse(settings.GetRawText()) as System.Text.Json.Nodes.JsonObject, "backup", at),
+                };
+            }
+            return blob;
         }
         catch (Exception ex)
         {
@@ -275,6 +287,8 @@ public static class DataStore
             ShareUrgentTag = inc.Settings.ShareUrgentTag,
             ShareBoughtTag = inc.Settings.ShareBoughtTag,
             ShareHeadingSuffix = inc.Settings.ShareHeadingSuffix,
+            // The phone's preferences: keep whichever copy is newer; a copy that never came from the phone is ignored.
+            Phone = inc.Settings.Phone is { Source.Length: > 0 } phone && phone.SyncedAt >= (s.Phone?.SyncedAt ?? 0) ? phone : s.Phone ?? new(),
         };
         current.Settings = s;
         var healed = Heal(current, now);

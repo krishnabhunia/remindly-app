@@ -33,9 +33,12 @@ public static class Reminders
         return r.SnoozedUntil ?? r.RecurAt;
     }
 
-    public static List<DueAlert> Due(RemindlyData data, long now, ISet<string> fired, TimeZoneInfo? zone = null)
+    /// <param name="muted">Collects the keys of alerts the phone's Alerts switch silenced for that tab (approved S16).
+    /// Like Android they are dropped, not postponed: mark them fired so they never pop up later.</param>
+    public static List<DueAlert> Due(RemindlyData data, long now, ISet<string> fired, TimeZoneInfo? zone = null, List<string>? muted = null)
     {
         var outList = new List<DueAlert>();
+        var phone = data.Settings.Phone ?? new PhonePrefs();
         long floor = now - CatchUpWindowMs;
         var lists = data.Settings.ShopLists;
         foreach (var i in data.Items)
@@ -43,6 +46,7 @@ public static class Reminders
             if (FireTimeOf(i) is not long at || at > now || at < floor) continue;
             var key = ItemKey(i.Id, at);
             if (fired.Contains(key)) continue;
+            if (!phone.AlertsOn(i.Tab)) { muted?.Add(key); continue; }
             var where = i.Tab == Tab.SHOP
                 ? (ShopLists.ListIdOf(i, lists) is long lid ? ShopLists.Live(lists).First(l => l.Id == lid).Name : "Unsorted")
                 : TabNames.Title(i.Tab);
@@ -54,6 +58,7 @@ public static class Reminders
             if (FireTimeOf(r) is not long at || at > now || at < floor) continue;
             var key = CallKey(r.Id, at);
             if (fired.Contains(key)) continue;
+            if (!phone.AlertsOn(null)) { muted?.Add(key); continue; }
             var body = string.IsNullOrWhiteSpace(r.Note) ? r.Number : $"{r.Number} · {r.Note!.Trim()}";
             outList.Add(new DueAlert(AlertKind.CALL, r.Id, at, "Call back " + r.Display, body, key, r.AlertType.Contains('R') || r.AlertType.Contains('A')));
         }
@@ -64,6 +69,7 @@ public static class Reminders
             if (at > now || at < floor) continue;
             var key = DayKey(l.Id, at);
             if (fired.Contains(key)) continue;
+            if (!phone.AlertsOn(Tab.SHOP)) { muted?.Add(key); continue; }
             int open = ShopLists.ItemsIn(data.Items, l.Id, lists).Count(i => !i.Done);
             outList.Add(new DueAlert(AlertKind.SHOPPING_DAY, l.Id, at, $"Shopping day · {l.Name}", open == 0 ? "Nothing left to buy" : $"{open} to buy", key, false));
         }

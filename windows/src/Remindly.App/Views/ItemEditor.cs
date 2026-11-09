@@ -49,6 +49,7 @@ public sealed class ItemEditor : EditorWindow
         var state = AppState.Current;
         var item = state.NewItem(tab, title);
         if (dueAt is long due) item = item with { DueAt = due, DueHasTime = true };
+        else item = state.WithNewDue(item, editor: true);
         if (tab == Tab.TASKS && listId is > 0)
         {
             var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == listId);
@@ -83,7 +84,7 @@ public sealed class ItemEditor : EditorWindow
         _alert = Combo(AlertTypes, item.AlertType == "OFF" ? "Muted" : item.AlertType.Contains('R') || item.AlertType.Contains('A') ? "Ring" : "Notify");
         Field("Priority", _priority);
         Section("When");
-        var local = item.DueAt is long due ? Clock.ToLocal(due) : DateTime.Today.AddHours(state.Settings.DefaultDueHour);
+        var local = item.DueAt is long due ? Clock.ToLocal(due) : DateTime.Today.AddMinutes(state.Phone.DueMinuteOfDay);
         _hasDue.IsChecked = item.DueAt != null; _date.SelectedDate = local.Date;
         _hasTime.IsChecked = item.DueAt == null || item.DueHasTime;
         _time.Text = local.ToString("HH:mm", CultureInfo.InvariantCulture);
@@ -215,7 +216,7 @@ public sealed class ItemEditor : EditorWindow
         if (_hasDue.IsChecked == true || mode != "OFF")
         {
             var date = _date.SelectedDate ?? DateTime.Today;
-            var time = TimeSpan.FromHours(AppState.Current.Settings.DefaultDueHour);
+            var time = TimeSpan.FromMinutes(AppState.Current.Phone.DueMinuteOfDay);
             if (hasTime && (!TimeSpan.TryParseExact(_time.Text.Trim(), new[] { @"h\:mm", @"hh\:mm", @"h\.mm", "hhmm" }, CultureInfo.InvariantCulture, out time) || time.TotalHours >= 24))
             { error = "Time must look like 09:30 (24-hour)."; return null; }
             dueAt = Clock.FromLocal(date.Date + time);

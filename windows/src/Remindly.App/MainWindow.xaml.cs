@@ -46,9 +46,13 @@ public partial class MainWindow : Window
         _snackTimer.Tick += (_, _) => HideSnack();
         AppState.Current.Changed += () =>
         {
+            // A tab the phone just hid: move to the first one it shows, as the phone does.
+            if (HiddenByPhone(SelectedTab)) { UpdateTabVisibility(); Go(HomeTab()); }
             (Page.Content as IPage)?.Refresh();
             _shell?.Sync();
         };
+        // A countdown started or was cancelled: redraw so its card shows (or drops) the "Moving to Done" chip.
+        DoneFlow.Changed += () => (Page.Content as IPage)?.Refresh();
         if (App.Updates != null) App.Updates.Changed += () => Dispatcher.BeginInvoke(RefreshUpdateBanner);
         if (App.Cloud != null) App.Cloud.Changed += () => Dispatcher.BeginInvoke(RefreshAccountButton);
         Loaded += (_, _) => RefreshUpdateBanner();
@@ -190,19 +194,33 @@ public partial class MainWindow : Window
 
     public void ToggleMode() => SetMode(_shop ? "TASK" : "SHOP");
 
-    private TabItem HomeTab() => _shop ? (HubDesign ? OverviewTab : BuyTab) : (HubDesign ? TodayTab : TasksTab);
+    private TabItem HomeTab() => _shop ? (HubDesign ? OverviewTab : BuyTab) : (HubDesign ? TodayTab : FirstTaskTab());
+
+    /// <summary>The first task-mode tab the phone shows (Android firstVisibleTab), else Settings.</summary>
+    private TabItem FirstTaskTab()
+    {
+        var phone = AppState.Current.Phone;
+        return phone.ShowTasks ? TasksTab : phone.ShowLearn ? LearnTab : phone.ShowCalls ? CallsTab : SettingsTab;
+    }
+
+    private bool HiddenByPhone(TabItem? tab)
+    {
+        var phone = AppState.Current.Phone;
+        return tab == TasksTab && !phone.ShowTasks || tab == LearnTab && !phone.ShowLearn || tab == CallsTab && !phone.ShowCalls;
+    }
 
     private void UpdateTabVisibility()
     {
         TodayTab.Visibility = !_shop && HubDesign ? Visibility.Visible : Visibility.Collapsed;
         OverviewTab.Visibility = _shop && HubDesign ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var t in new[] { TasksTab, LearnTab, CallsTab }) t.Visibility = _shop ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var t in new[] { TasksTab, LearnTab, CallsTab }) t.Visibility = _shop || HiddenByPhone(t) ? Visibility.Collapsed : Visibility.Visible;
         foreach (var t in new[] { BuyTab, ShopsTab, ProductsTab }) t.Visibility = _shop ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void Go(TabItem tab)
     {
         if (tab == TodayTab && !HubDesign) tab = TasksTab;
+        if (HiddenByPhone(tab)) tab = FirstTaskTab();   // never open a tab the phone hides (quick views, shortcuts, alerts)
         if (tab == OverviewTab && !HubDesign) tab = BuyTab;
         bool shopTab = tab == BuyTab || tab == ShopsTab || tab == ProductsTab || tab == OverviewTab;
         bool taskTab = tab == TasksTab || tab == LearnTab || tab == CallsTab || tab == TodayTab;
@@ -223,21 +241,24 @@ public partial class MainWindow : Window
     public List<NavEntry> NavEntries()
     {
         var s = AppState.Current;
-        int Open(Tab t) => s.LiveItems(t).Count(i => !i.Done);
+        var phone = s.Phone;
+        // The phone's Count badges switch (approved S9): no counts when it is off.
+        int? Open(Tab t) => phone.Badges ? s.LiveItems(t).Count(i => !i.Done) : null;
         var list = new List<NavEntry>();
         if (_shop)
         {
             if (HubDesign) list.Add(new NavEntry(OverviewTab, "Overview", Glyphs.Home, null));
             list.Add(new NavEntry(BuyTab, "Buy", Glyphs.Cart, Open(Tab.SHOP)));
-            list.Add(new NavEntry(ShopsTab, "Shops", Glyphs.Shop, s.Shops.Count));
-            list.Add(new NavEntry(ProductsTab, "Products", Glyphs.Package, s.Products.Count));
+            list.Add(new NavEntry(ShopsTab, "Shops", Glyphs.Shop, phone.Badges ? s.Shops.Count : null));
+            list.Add(new NavEntry(ProductsTab, "Products", Glyphs.Package, phone.Badges ? s.Products.Count : null));
         }
         else
         {
             if (HubDesign) list.Add(new NavEntry(TodayTab, "Today", Glyphs.Home, null));
-            list.Add(new NavEntry(TasksTab, "Tasks", Glyphs.Tasks, Open(Tab.TASKS)));
-            list.Add(new NavEntry(LearnTab, "Learn", Glyphs.Learn, Open(Tab.LEARN)));
-            list.Add(new NavEntry(CallsTab, "Calls", Glyphs.Phone, s.LiveCalls().Count(c => !c.Done)));
+            // The phone's Visible tabs (approved S8): a tab hidden on the phone is hidden here too.
+            if (phone.ShowTasks) list.Add(new NavEntry(TasksTab, "Tasks", Glyphs.Tasks, Open(Tab.TASKS)));
+            if (phone.ShowLearn) list.Add(new NavEntry(LearnTab, "Learn", Glyphs.Learn, Open(Tab.LEARN)));
+            if (phone.ShowCalls) list.Add(new NavEntry(CallsTab, "Calls", Glyphs.Phone, phone.Badges ? s.LiveCalls().Count(c => !c.Done) : null));
         }
         return list;
     }

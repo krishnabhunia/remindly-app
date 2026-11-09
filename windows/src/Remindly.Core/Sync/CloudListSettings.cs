@@ -23,7 +23,9 @@ public static class CloudListSettings
         var tasks = json["taskLists"]?.Deserialize<List<TaskList>>(Json.Options) ?? new();
         var shops = json["shopLists"]?.Deserialize<List<ShopList>>(Json.Options) ?? new();
         var groups = json["tasksGroups"]?.Deserialize<List<string>>(Json.Options) ?? new();
-        var incoming = new AppSettings { TaskLists = tasks, TasksGroups = groups, ShopLists = shops };
+        // The phone's own preferences ride the same document; Windows follows them read-only.
+        var phone = PhonePrefs.FromJson(json, "sync", Math.Max(document.UpdatedAt, json["settingsUpdatedAt"] is JsonValue v && v.TryGetValue<long>(out var at) ? at : 0));
+        var incoming = new AppSettings { TaskLists = tasks, TasksGroups = groups, ShopLists = shops, Phone = phone };
         bool newerTasks = TaskLists.HasNewer(local.TaskLists, tasks);
         bool newerShops = local.ShopLists.Any(l => !shops.Any(c => c.Id == l.Id && c.UpdatedAt >= l.UpdatedAt));
         if (!newerTasks && !newerShops) return new(incoming, null);

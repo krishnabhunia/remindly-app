@@ -53,12 +53,35 @@ public sealed class CallsView : DockPanel, IPage
     private static Border CallCard(CallReminder c, long now)
     {
         var state = AppState.Current;
-        var check = Ui.Check(c.Done, on =>
+        // Same Move-to-Done flow as tasks, with the phone's Calls delay (approved M1–M4).
+        var key = DoneFlow.Key(c);
+        void SetDone(bool on)
         {
-            var before = c;
-            if (on) App.Current.Main.Snack(state.CompleteCall(c), () => state.UpsertCall(before));
-            else { state.UpsertCall(c with { Done = false, DoneAt = null }); App.Current.Main.Snack("Back to Active", () => state.UpsertCall(before)); }
-        }, "Called back");
+            if (!on && DoneFlow.IsPending(key)) { DoneFlow.Cancel(key); return; }
+            var before = state.LiveCalls().FirstOrDefault(x => x.Id == c.Id);
+            if (before == null || before.Done == on) return;
+            if (on)
+            {
+                int delay = state.Phone.CallsDelaySec;
+                DoneFlow.Complete(key, delay, () =>
+                {
+                    var current = state.LiveCalls().FirstOrDefault(x => x.Id == c.Id);
+                    if (current == null || current.Done) return;
+                    var message = state.CompleteCall(current);
+                    if (delay == 0 || current.RepeatMode != "OFF")
+                        App.Current.Main.Snack(message, () => { state.UpsertCall(current); DoneFlow.MarkGlow(key); });
+                });
+            }
+            else DoneFlow.Revive(key, () =>
+            {
+                var current = state.LiveCalls().FirstOrDefault(x => x.Id == c.Id);
+                if (current == null || !current.Done) return;
+                state.UpsertCall(current with { Done = false, DoneAt = null });
+                App.Current.Main.Snack("Back to Active", () => state.UpsertCall(current));
+            });
+        }
+        var check = Ui.Check(c.Done || DoneFlow.IsBusy(key), SetDone, "Called back");
+        WorkspaceUi.Identify(check, $"complete-call-{c.Id}", "Called back: " + c.Display);
 
         var titleRow = new WrapPanel();
         // One click on the name opens the editor (approved F1); double-clicking the card still works.
@@ -66,19 +89,33 @@ public sealed class CallsView : DockPanel, IPage
         name.Margin = new Thickness(0, 0, 8, 0);
         name.VerticalAlignment = VerticalAlignment.Center;
         titleRow.Children.Add(name);
-        titleRow.Children.Add(Ui.Tag(c.Source == CallSource.AUTO ? "Auto" : "Manual", Ui.Res("BlueBrush"), Ui.Res("BlueSoftBrush")));
-        if (c.RepeatMode != "OFF")
-            titleRow.Children.Add(Ui.Tag("↻ " + Recurrence.Label(new Item { RepeatMode = c.RepeatMode, RepeatDays = c.RepeatDays, RepeatN = c.RepeatN, RepeatUnit = c.RepeatUnit, RepeatOrdList = c.RepeatOrdList, RepeatOrd = c.RepeatOrd, RepeatDow = c.RepeatDow }),
-                Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
-        if (!string.IsNullOrWhiteSpace(c.Label)) titleRow.Children.Add(Ui.Tag(c.Label!, Ui.Res("InkSubtleBrush"), Ui.Res("SurfaceBrush")));
+        // The phone's Call card details (approved S10) and Card details for Calls (S5).
+        var phone = state.Phone;
+        var parts = phone.Card(null);
+        if (!parts.Checkbox) check.Visibility = Visibility.Collapsed;
+        if (!c.Done && phone.CallCardShowMissedAt)
+            titleRow.Children.Add(Ui.Tag(c.Source == CallSource.AUTO ? "Auto" : "Manual", Ui.Res("BlueBrush"), Ui.Res("BlueSoftBrush")));
+        if (c.MissedCount > 1 && (c.Done || phone.CallCardShowMissedCount))
+            titleRow.Children.Add(Ui.Tag($"×{c.MissedCount} missed", Ui.Res("DangerBrush"), Ui.Res("DangerSoftBrush")));
+        if (phone.CallCardShowLabel && !string.IsNullOrWhiteSpace(c.Label))
+            titleRow.Children.Add(Ui.Tag(c.Label!, Ui.Res("InkSubtleBrush"), Ui.Res("SurfaceBrush")));
 
-        var meta = new List<string> { c.Number };
+        var meta = new List<string>();
+        if (c.Display != c.Number && phone.CallCardShowNumber) meta.Add(c.Number);   // a nameless call already shows its number
         if (!string.IsNullOrWhiteSpace(c.Company)) meta.Add(c.Company!);
-        if (c.SnoozedUntil is long sn && sn > now) meta.Add("💤 " + Clock.FormatDayTime(sn));
-        else if (c.RecurAt is long at) meta.Add((c.Done && c.RepeatMode != "OFF" ? "Next " : "") + Clock.FormatDayTime(at));
-        if (!string.IsNullOrWhiteSpace(c.Note)) meta.Add(c.Note!);
+        if (c.Done)
+        {
+            if (parts.DateTime && c.DoneAt is long doneAt) meta.Add("Done " + Clock.FormatDayTime(doneAt));
+        }
+        else if (c.SnoozedUntil is long sn && sn > now) meta.Add("💤 " + Clock.FormatDayTime(sn));
+        else if (phone.CallCardShowMissedAt && parts.DateTime && (c.LastMissedAt ?? c.RecurAt ?? c.CreatedAt) is long stamp)
+            meta.Add(Clock.FormatDayTime(stamp));
+        if (c.RepeatMode != "OFF" && c.RecurAt is long next && (c.Done || phone.CallCardShowNext))
+            meta.Add((c.Done ? "↻ returns " : "↻ next ") + Clock.FormatDay(next));
+        if (phone.CallCardShowNote && !string.IsNullOrWhiteSpace(c.Note)) meta.Add("✎ " + c.Note!.Trim());
         if (!string.IsNullOrWhiteSpace(c.Message)) meta.Add("💬 " + c.Message);
         var metaText = Ui.Sub(string.Join("  ·  ", meta));
+        if (meta.Count == 0) metaText.Visibility = Visibility.Collapsed;
         if (!c.Done && c.RecurAt is long due && due < now) metaText.Foreground = Ui.Res("DangerBrush");
 
         var actions = Ui.Row(
@@ -87,10 +124,22 @@ public sealed class CallsView : DockPanel, IPage
             Ui.IconBtn("✎", () => CallEditor.OpenFor(c), "Edit"),
             Ui.IconBtn("🗑", () =>
             {
+                // The phone's Delete style for Calls (approved S3).
+                if (state.Phone.ConfirmDelete(null) && !Ui.Confirm($"Move the call-back \"{c.Display}\" to the Bin?")) return;
                 state.UpsertCall(c with { DeletedAt = state.Now });
                 App.Current.Main.Snack("Moved to the Bin", () => state.UpsertCall(c));
             }, "Delete"));
-        return Ui.Card(Ui.Columns("Auto,*,Auto", check, Ui.Stack(titleRow, metaText), actions), () => CallEditor.OpenFor(c));
+        // With the phone's checkbox hidden the card still needs a way to mark it done or bring it back.
+        if (check.Visibility == Visibility.Collapsed)
+        {
+            bool busy = DoneFlow.IsBusy(key);
+            var toggle = WorkspaceUi.Identify(Ui.IconBtn(c.Done ? "↺" : "✓", () => SetDone(!(c.Done || DoneFlow.IsBusy(key))),
+                c.Done ? "Back to Active" : busy ? "Undo" : "Called back — mark done"), $"done-call-{c.Id}", c.Done ? "Back to Active" : "Mark called back");
+            actions.Children.Insert(0, toggle);
+        }
+        var body = Ui.Stack(titleRow, metaText);
+        if (DoneFlow.Strip(key) is { } strip) body.Children.Add(strip);
+        return DoneFlow.Track(Ui.Card(Ui.Columns("Auto,*,Auto", check, body, actions), () => CallEditor.OpenFor(c)), key);
     }
 }
 

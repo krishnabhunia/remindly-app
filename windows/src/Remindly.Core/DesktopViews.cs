@@ -40,12 +40,16 @@ public static class DesktopViews
     /// "Move to today": keeps the item's time of day (a date-only item keeps being date-only) and clears a snooze.
     /// An undated item gets today at <paramref name="defaultHour"/>.
     /// </summary>
-    public static Item MoveToToday(Item item, long now, int defaultHour, TimeZoneInfo? zone = null)
+    public static Item MoveToToday(Item item, long now, int defaultHour, TimeZoneInfo? zone = null) =>
+        MoveToTodayAt(item, now, Math.Clamp(defaultHour, 0, 23) * 60, zone);
+
+    /// <summary>Same, with the phone's "date-only items ring at" minute of the day for items without a date.</summary>
+    public static Item MoveToTodayAt(Item item, long now, int dueMinuteOfDay, TimeZoneInfo? zone = null)
     {
         var today = Clock.LocalDate(now, zone);
         long due = item.DueAt is long d
             ? Clock.FromLocal(today + Clock.ToLocal(d, zone).TimeOfDay, zone)
-            : Clock.FromLocal(today.AddHours(Math.Clamp(defaultHour, 0, 23)), zone);
+            : Clock.FromLocal(today.AddMinutes(Math.Clamp(dueMinuteOfDay, 0, 24 * 60 - 1)), zone);
         return item with { DueAt = due, DueHasTime = item.DueAt == null ? false : item.DueHasTime, SnoozedUntil = null };
     }
 

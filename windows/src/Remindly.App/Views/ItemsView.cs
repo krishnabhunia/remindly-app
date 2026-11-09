@@ -81,7 +81,7 @@ public sealed partial class ItemsView : DockPanel, IPage
             }
         }
         if (ItemRules.DupActiveMatch(state.Data.Items, tab, text) && !Ui.Confirm($"\"{text}\" is already on your {TabNames.Title(tab)} list. Add it again?")) return false;
-        var item = state.NewItem(tab, text);
+        var item = state.WithNewDue(state.NewItem(tab, text));
         if (tab == Tab.TASKS && taskListId is > 0)
         {
             var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == taskListId);
@@ -134,6 +134,13 @@ public sealed partial class ItemsView : DockPanel, IPage
         });
     }
 
+    /// <summary>The phone's sort for this tab (approved S7); the Day Board keeps its day columns.</summary>
+    private List<DayGroup<Item>> Groups(List<Item> shown, long now) => ItemRules.GroupForSort(shown, _doneView, now,
+        AppState.Current.Phone.Sort(_tab), _tab, _tab == Tab.TASKS && CurrentLocation.IsInsideList);
+
+    /// <summary>Which parts of a card the phone shows for this item's tab (approved S5).</summary>
+    private static CardParts Parts(Item item) => AppState.Current.Phone.Card(item.Tab);
+
     private static ScrollViewer? FindScroll(DependencyObject? d)
     {
         if (d == null) return null;
@@ -146,7 +153,7 @@ public sealed partial class ItemsView : DockPanel, IPage
     private ScrollViewer ListBody(List<Item> shown, long now)
     {
         var list = new StackPanel();
-        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in Groups(shown, now))
         {
             var header = Ui.Header($"{group.Label} · {group.Items.Count}");
             if (group.Key == "overdue") header.Foreground = Ui.Res("DangerBrush");
@@ -162,7 +169,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         if (_selected is long sid && !shown.Any(i => i.Id == sid)) _selected = null;
         _selected ??= shown.FirstOrDefault(i => !i.Done)?.Id ?? shown.FirstOrDefault()?.Id;
         var list = new StackPanel();
-        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in Groups(shown, now))
         {
             var header = Ui.Header($"{group.Label} · {group.Items.Count}");
             header.Foreground = group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush");
@@ -229,7 +236,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         var actions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
         actions.Children.Add(Ui.Primary("Edit…", () => EditLatest(item)));
         actions.Children.Add(Ui.Btn(item.Done ? "Back to Active" : "Done", () => Toggle(item, !item.Done)));
-        if (!item.Done && item.DueAt != null) actions.Children.Add(Ui.Btn($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(item)));
+        if (!item.Done && item.DueAt != null) actions.Children.Add(Ui.Btn($"Snooze {state.Phone.SnoozeMinutes} min", () => Snooze(item)));
         if (!string.IsNullOrWhiteSpace(item.Url)) actions.Children.Add(Ui.Btn("Open link", () => InstallInfo.OpenUrl(item.Url!)));
         foreach (var button in actions.Children.OfType<Button>()) button.Margin = new Thickness(0, 0, 6, 6);
         body.Children.Add(actions);
@@ -261,7 +268,7 @@ public sealed partial class ItemsView : DockPanel, IPage
                 footer = Ui.Btn("Move all to today", () =>
                 {
                     var snapshot = state.TakeSnapshot();
-                    state.UpsertMany(column.Items.Select(i => DesktopViews.MoveToToday(i, state.Now, state.Settings.DefaultDueHour)));
+                    state.UpsertMany(column.Items.Select(i => DesktopViews.MoveToTodayAt(i, state.Now, state.Phone.DueMinuteOfDay)));
                     App.Current.Main.Snack($"{column.Items.Count} moved to today", () => state.Restore(snapshot));
                 });
                 footer.IsEnabled = column.Items.Count > 0;
@@ -271,7 +278,7 @@ public sealed partial class ItemsView : DockPanel, IPage
                 long? due = column.Key switch
                 {
                     DesktopViews.Today => NextLocalHour(now),
-                    DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddHours(state.Settings.DefaultDueHour)), _ => null,
+                    DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddMinutes(state.Phone.DueMinuteOfDay)), _ => null,
                 };
                 footer = Ui.Btn("+ Add " + (column.Key == DesktopViews.Later ? "for later" : "to " + column.Label.ToLowerInvariant()), () => CreateTask(due));
             }
@@ -306,7 +313,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         if (TaskBadge(item) is { } badge) body.Children.Add(badge);
         var chips = new WrapPanel { Margin = new Thickness(25, 6, 0, 0) };
         bool late = !item.Done && item.DueAt is long d && d < now;
-        if (item.DueAt is long due) chips.Children.Add(Chip(item.DueHasTime ? Clock.FormatTime(due) : Clock.FormatDay(due),
+        if (item.DueAt is long due && (item.Done || Parts(item).DateTime)) chips.Children.Add(Chip(item.DueHasTime ? Clock.FormatTime(due) : Clock.FormatDay(due),
             late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"), late ? Ui.Res("DangerSoftBrush") : Ui.Res("NavSelectedBrush")));
         foreach (var tag in TagList(item, now)) chips.Children.Add(tag);
         if (item.Tab == Tab.LEARN && item.Progress > 0) chips.Children.Add(Chip($"{item.Progress}%", Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
@@ -315,11 +322,12 @@ public sealed partial class ItemsView : DockPanel, IPage
         {
             var note = Ui.Sub(item.Notes.Trim().Replace('\n', ' ')); note.Margin = new Thickness(25, 6, 0, 0); note.MaxHeight = 36; body.Children.Add(note);
         }
+        if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) body.Children.Add(strip);
         body.Children.Add(ItemActions(item));
         var card = Ui.Card(body);
         card.CornerRadius = new CornerRadius(12); card.Padding = new Thickness(12, 10, 12, 10); card.Margin = new Thickness(0, 0, 0, 8);
         card.ContextMenu = ItemMenu(item); card.ToolTip = "Click the name to edit · checkbox changes completion";
-        return card;
+        return DoneFlow.Track(card, DoneFlow.Key(item));
     }
 
     private static Border Chip(string text, Brush foreground, Brush background)
@@ -339,7 +347,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         var head = Ui.Columns(TableCols, new Border(), Caption("Task"), Caption("Due"), Caption("Repeat"), Caption("Priority"), new Border { Width = 72 });
         head.Margin = new Thickness(12, 0, 12, 0); head.Height = 34;
         rows.Children.Add(new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = head });
-        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in Groups(shown, now))
         {
             var label = Ui.Text($"{group.Label} · {group.Items.Count}", 12.5, FontWeights.SemiBold, group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"));
             label.Margin = new Thickness(48, 12, 0, 6); rows.Children.Add(label);
@@ -363,11 +371,13 @@ public sealed partial class ItemsView : DockPanel, IPage
         if (item.Personal) tags.Children.Add(Outline("personal"));
         if (item.SnoozedUntil is long snooze && snooze > now) tags.Children.Add(Outline("snoozed " + Clock.FormatTime(snooze)));
         if (tags.Children.Count > 0) title.Children.Add(tags);
+        if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) { strip.Margin = new Thickness(0, 4, 0, 6); title.Children.Add(strip); }
         bool late = !item.Done && item.DueAt is long d && d < now;
-        var due = Ui.Mono(item.DueAt is long dd ? (item.DueHasTime ? Clock.ToLocal(dd).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)
+        var due = Ui.Mono(item.DueAt is long dd && (item.Done || Parts(item).DateTime) ? (item.DueHasTime ? Clock.ToLocal(dd).ToString("ddd d MMM ", CultureInfo.InvariantCulture) + Clock.FormatTime(dd)
             : Clock.ToLocal(dd).ToString("ddd d MMM", CultureInfo.InvariantCulture)) : "—", 12.5, late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"));
         var repeat = Ui.Text(Recurrence.Label(item) ?? "—", 13, color: Ui.Res("InkSubtleBrush"), wrap: false);
-        var priority = Ui.Text(item.Priority is Priority p ? PriorityNames.Label(p) : "—", 13,
+        bool showPriority = Parts(item).Priority && AppState.Current.Phone.ShowPriority(item.Priority, item.Tab);
+        var priority = Ui.Text(showPriority && item.Priority is Priority p ? PriorityNames.Label(p) : "—", 13,
             color: item.Priority is Priority pr ? PriorityInk(pr) : Ui.Res("InkSubtleBrush"), wrap: false);
         var grid = Ui.Columns(TableCols, CompletionCheck(item), title, due, repeat, priority, ItemActions(item));
         grid.Margin = new Thickness(12, 0, 12, 0);
@@ -375,7 +385,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         row.MouseEnter += (_, _) => row.Background = Ui.Res("HoverBrush");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.ContextMenu = ItemMenu(item);
-        return row;
+        return DoneFlow.Track(row, DoneFlow.Key(item));
     }
     private static Border Outline(string text) => new()
     {
@@ -387,7 +397,7 @@ public sealed partial class ItemsView : DockPanel, IPage
     private UIElement TileBody(List<Item> shown, long now)
     {
         var stack = new StackPanel();
-        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in Groups(shown, now))
         {
             var body = new StackPanel();
             body.Children.Add(Ui.Text(group.Label, 18, FontWeights.ExtraBold, group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush")));
@@ -399,25 +409,26 @@ public sealed partial class ItemsView : DockPanel, IPage
 
     private UIElement TimelineRow(Item item, long now)
     {
-        var time = Ui.Text(item.DueAt is long d && item.DueHasTime ? Clock.ToLocal(d).ToString("HH:mm", CultureInfo.InvariantCulture) : "—", 15, FontWeights.ExtraBold, wrap: false);
+        var time = Ui.Text(item.DueAt is long d && item.DueHasTime && (item.Done || Parts(item).DateTime) ? Clock.FormatTime(d) : "—", 15, FontWeights.ExtraBold, wrap: false);
         time.Width = 64;
         var mid = Ui.Stack(TitleButton(item, 15));
         if (TaskBadge(item) is { } badge) mid.Children.Add(badge);
         var meta = new List<string>();
-        if (Recurrence.Label(item) is string repeat) meta.Add("repeats " + repeat.ToLowerInvariant());
+        if (Parts(item).Repeat && Recurrence.Label(item) is string repeat) meta.Add("repeats " + repeat.ToLowerInvariant());
         if (item.Tab == Tab.LEARN && !string.IsNullOrWhiteSpace(item.Platform)) meta.Add(item.Platform!);
         if (item.Progress > 0) meta.Add($"{item.Progress}%");
         if (!string.IsNullOrWhiteSpace(item.Notes)) meta.Add(item.Notes.Trim().Replace('\n', ' '));
         if (meta.Count > 0) mid.Children.Add(Ui.Sub(string.Join(" · ", meta)));
-        UIElement priority = item.Priority is Priority p && p != Priority.MEDIUM
+        if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) mid.Children.Add(strip);
+        UIElement priority = item.Priority is Priority p && Parts(item).Priority && AppState.Current.Phone.ShowPriority(p, item.Tab)
             ? Ui.Pill(PriorityNames.Label(p), PriorityInk(p), p == Priority.URGENT ? Ui.Res("DangerSoftBrush") : p == Priority.HIGH ? Ui.Res("AmberSoftBrush") : Ui.Res("NavSelectedBrush"), 12, FontWeights.Bold)
             : new Border();
         var grid = Ui.Columns("Auto,Auto,*,Auto,Auto", time, CompletionCheck(item), mid, priority, ItemActions(item));
-        return new Border
+        return DoneFlow.Track(new Border
         {
             BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(4, 12, 4, 12),
             Margin = new Thickness(0, 10, 0, 0), Child = grid, Background = Brushes.Transparent, ContextMenu = ItemMenu(item),
-        };
+        }, DoneFlow.Key(item));
     }
 
     private static void EditLatest(Item item)
@@ -427,12 +438,15 @@ public sealed partial class ItemsView : DockPanel, IPage
         ItemEditor.Edit(current);
     }
     private static Button TitleButton(Item item, double size = 14) => WorkspaceUi.Link(
-        $"edit-task-{item.Id}", "Edit task " + item.Title, item.Title, () => EditLatest(item), size, item.Done);
+        $"edit-task-{item.Id}", "Edit task " + item.Title, item.Title, () => EditLatest(item), size,
+        item.Done || DoneFlow.IsBusy(DoneFlow.Key(item)));
     private static CheckBox CompletionCheck(Item item)
     {
-        var check = WorkspaceUi.Identify(Ui.Check(item.Done, done => Toggle(item, done)), $"complete-task-{item.Id}",
+        // Ticked while counting down; unticking then is the Undo (approved M1).
+        var check = WorkspaceUi.Identify(Ui.Check(item.Done || DoneFlow.IsBusy(DoneFlow.Key(item)), done => Toggle(item, done)), $"complete-task-{item.Id}",
             (item.Done ? "Mark active: " : "Mark done: ") + item.Title);
         check.Click += (_, e) => e.Handled = true;
+        if (!Parts(item).Checkbox) check.Visibility = Visibility.Collapsed;   // phone: Card details → checkbox off
         return check;
     }
     private static StackPanel ItemActions(Item item)
@@ -442,26 +456,61 @@ public sealed partial class ItemsView : DockPanel, IPage
         var more = WorkspaceUi.More($"task-menu-{item.Id}", "More options for " + item.Title, () => ItemMenu(item));
         return Ui.Row(edit, more);
     }
+    /// <summary>
+    /// Tick: the phone's Move-to-Done countdown, then the green tick (approved M1–M4). Untick in Done: slide back.
+    /// Unticking during the countdown is the Undo; nothing is saved until the countdown ends.
+    /// </summary>
     internal static void Toggle(Item item, bool isChecked)
     {
         var state = AppState.Current;
+        var key = DoneFlow.Key(item);
+        if (!isChecked && DoneFlow.IsPending(key)) { DoneFlow.Cancel(key); return; }
         var before = state.Item(item.Id);
         if (before == null || before.DeletedAt != null || before.Done == isChecked) return;
-        if (isChecked) { var message = state.Complete(before); App.Current.Main.Snack(message, () => state.Upsert(before)); }
-        else { state.Revive(before); App.Current.Main.Snack("Back to Active", () => state.Upsert(before)); }
+        if (isChecked)
+        {
+            int delay = state.Phone.DelaySec(before.Tab);
+            DoneFlow.Complete(key, delay, () =>
+            {
+                var current = state.Item(item.Id);
+                if (current == null || current.DeletedAt != null || current.Done) return;
+                var message = state.Complete(current);
+                // With a countdown the Undo already happened on the card; a repeat still says when it returns.
+                if (delay == 0 || state.Item(item.Id) is { Done: false } || message.Contains("returns", StringComparison.OrdinalIgnoreCase))
+                    App.Current.Main.Snack(message, () => { state.Upsert(current); DoneFlow.MarkGlow(key); });
+            });
+        }
+        else DoneFlow.Revive(key, () =>
+        {
+            var current = state.Item(item.Id);
+            if (current == null || current.DeletedAt != null || !current.Done) return;
+            state.Revive(current);
+            App.Current.Main.Snack("Back to Active", () => state.Upsert(current));
+        });
+    }
+
+    /// <summary>A completion checkbox for item rows outside this view (Buy cards, Today Hub).</summary>
+    internal static CheckBox DoneCheck(Item item, string tip)
+    {
+        var check = Ui.Check(item.Done || DoneFlow.IsBusy(DoneFlow.Key(item)), on => Toggle(item, on), tip);
+        WorkspaceUi.Identify(check, $"complete-task-{item.Id}", tip + ": " + item.Title);
+        check.Click += (_, e) => e.Handled = true;   // compact rows have no ⋯ menu, so their checkbox always stays
+        return check;
     }
     private static void Snooze(Item item)
     {
         var state = AppState.Current;
         var current = state.Item(item.Id);
         if (current == null || current.DeletedAt != null) return;
-        state.Snooze(current, state.Settings.SnoozeMinutes);
-        App.Current.Main.Snack($"Snoozed {state.Settings.SnoozeMinutes} min", () => state.Upsert(current));
+        state.Snooze(current, state.Phone.SnoozeMinutes);
+        App.Current.Main.Snack($"Snoozed {state.Phone.SnoozeMinutes} min", () => state.Upsert(current));
     }
     private static void Delete(Item item)
     {
         var current = AppState.Current.Item(item.Id);
-        if (current == null || current.DeletedAt != null || !Ui.Confirm($"Move \"{current.Title}\" to the Bin?")) return;
+        if (current == null || current.DeletedAt != null) return;
+        // The phone's Delete style (approved S3): Undo snackbar, or a confirm first.
+        if (AppState.Current.Phone.ConfirmDelete(current.Tab) && !Ui.Confirm($"Move \"{current.Title}\" to the Bin?")) return;
         AppState.Current.SoftDelete(new[] { current });
         App.Current.Main.Snack("Moved to the Bin", () => AppState.Current.Upsert(current));
     }
@@ -472,12 +521,12 @@ public sealed partial class ItemsView : DockPanel, IPage
         void Add(string header, Action action) { var entry = new MenuItem { Header = header }; entry.Click += (_, e) => { e.Handled = true; action(); }; menu.Items.Add(entry); }
         Add("Edit…", () => EditLatest(item));
         Add(item.Done ? "Back to Active" : "Done", () => Toggle(item, !item.Done));
-        if (!item.Done && item.DueAt != null) Add($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(item));
+        if (!item.Done && item.DueAt != null) Add($"Snooze {state.Phone.SnoozeMinutes} min", () => Snooze(item));
         if (!item.Done) Add("Move to today", () =>
         {
             var current = state.Item(item.Id);
             if (current == null || current.DeletedAt != null) return;
-            state.Upsert(DesktopViews.MoveToToday(current, state.Now, state.Settings.DefaultDueHour));
+            state.Upsert(DesktopViews.MoveToTodayAt(current, state.Now, state.Phone.DueMinuteOfDay));
             App.Current.Main.Snack("Moved to today", () => state.Upsert(current));
         });
         if (!string.IsNullOrWhiteSpace(item.Url)) Add("Open link", () => InstallInfo.OpenUrl(item.Url!));
@@ -487,12 +536,31 @@ public sealed partial class ItemsView : DockPanel, IPage
     private static List<UIElement> TagList(Item item, long now)
     {
         var tags = new List<UIElement>();
-        if (Ui.PriorityTag(item.Priority) is Border priority) tags.Add(priority);
-        if (Recurrence.Label(item) is string repeat) tags.Add(Ui.Tag("↻ " + repeat, Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
+        var phone = AppState.Current.Phone;
+        var parts = phone.Card(item.Tab);
+        // Priority chip: Medium only when the phone shows it (approved S6); all chips follow Card details (S5).
+        if (parts.Priority && phone.ShowPriority(item.Priority, item.Tab))
+        {
+            if (Ui.PriorityTag(item.Priority) is Border priority) tags.Add(priority);
+            else if (item.Priority == Priority.MEDIUM) tags.Add(Ui.Tag("Medium", Ui.Res("BlueBrush"), Ui.Res("BlueSoftBrush")));
+        }
+        if (parts.Repeat && Recurrence.Label(item) is string repeat) tags.Add(Ui.Tag("↻ " + repeat, Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
+        if (parts.AlertType && AlertChip(item, phone) is { } alertChip) tags.Add(alertChip);
         if (item.Personal) tags.Add(Ui.Tag("🔒 Personal", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
         if (item.AlertType == "OFF") tags.Add(Ui.Tag("🔕 Muted", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
         if (item.SnoozedUntil is long snooze && snooze > now) tags.Add(Ui.Tag("💤 " + Clock.FormatTime(snooze), Ui.Res("AmberBrush"), Ui.Res("AmberSoftBrush")));
         return tags;
+    }
+    /// <summary>The phone's reminder-type chip: Alarm or Ring (Notify gets none), icon or text, in the phone's colours.</summary>
+    private static Border? AlertChip(Item item, PhonePrefs phone)
+    {
+        char? letter = item.AlertType.Contains('A') ? 'A' : item.AlertType.Contains('R') ? 'R' : null;
+        if (letter is not char l) return null;
+        var color = (Color)ColorConverter.ConvertFromString(phone.AlertColor(item.Tab, l));
+        string text = phone.AlertStyle(item.Tab) == "TEXT" ? (l == 'A' ? "Alarm" : "Ring") : (l == 'A' ? "⏰" : "🔊");
+        var tag = Ui.Tag(text, new SolidColorBrush(color), new SolidColorBrush(Color.FromArgb(0x24, color.R, color.G, color.B)));
+        tag.ToolTip = l == 'A' ? "Alarm" : "Ring";
+        return tag;
     }
     private static WrapPanel Tags(Item item, long now)
     {
@@ -509,7 +577,7 @@ public sealed partial class ItemsView : DockPanel, IPage
         if (taskBadge != null) mid.Children.Add(taskBadge);
         var meta = new List<string>();
         var due = Ui.DueText(item.DueAt, item.DueHasTime, now);
-        if (due.Length > 0) meta.Add((item.Done && item.RepeatMode != "OFF" ? "Returns " : "") + due);
+        if (due.Length > 0 && (item.Done || Parts(item).DateTime)) meta.Add((item.Done && item.RepeatMode != "OFF" ? "Returns " : "") + due);
         if (item.Tab == Tab.SHOP)
         {
             if (ShopLists.QtySegment(item) is string quantity) meta.Add(quantity);
@@ -537,10 +605,11 @@ public sealed partial class ItemsView : DockPanel, IPage
             Value = item.Progress, Maximum = 100, Height = 4, Margin = new Thickness(0, 5, 0, 0), Foreground = Ui.Res("AccentBrush"),
             Background = Ui.Res("NavSelectedBrush"), BorderThickness = new Thickness(0),
         });
+        if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) mid.Children.Add(strip);
         var actions = ItemActions(item);
         var card = Ui.Card(Ui.Columns("Auto,*,Auto", CompletionCheck(item), mid, actions));
         card.ContextMenu = ItemMenu(item);
         if (item.Personal) card.BorderBrush = Ui.Res("AccentSoftBrush");
-        return card;
+        return DoneFlow.Track(card, DoneFlow.Key(item));
     }
 }

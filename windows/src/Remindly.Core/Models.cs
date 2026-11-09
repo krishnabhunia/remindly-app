@@ -269,6 +269,13 @@ public sealed record AppSettings
     public int DefaultDueHour { get; init; } = 9;
     public int DeviceTag { get; init; }
     public string Design { get; init; } = Designs.Default;
+
+    /// <summary>
+    /// A read-only copy of the phone's own settings that Windows follows (approved S1–S16). It comes from the synced
+    /// settings document or an Android backup; Windows never publishes it, so it cannot overwrite the phone.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("pcPhonePrefs")]
+    public PhonePrefs Phone { get; init; } = new();
 }
 
 public sealed class RemindlyData

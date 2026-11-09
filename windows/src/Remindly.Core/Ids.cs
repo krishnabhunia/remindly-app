@@ -67,7 +67,13 @@ public static class Clock
 
     public static string FormatDate(long ms) => ToLocal(ms).ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
-    public static string FormatTime(long ms) => ToLocal(ms).ToString("hh:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+    /// <summary>The clock pattern in use: the phone's Time format (approved S11), set by the app. Tests keep the default.</summary>
+    public static Func<string> TimePattern { get; set; } = () => "hh:mm tt";
+
+    public static bool WindowsIs24Hour =>
+        System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.ShortTimePattern.Contains('H');
+
+    public static string FormatTime(long ms) => ToLocal(ms).ToString(TimePattern(), System.Globalization.CultureInfo.InvariantCulture);
 
     public static string FormatDayTime(long ms) => FormatDay(ms) + " · " + FormatTime(ms);
 }

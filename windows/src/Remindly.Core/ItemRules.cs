@@ -143,6 +143,60 @@ public static class ItemRules
         if (day == today.AddDays(-1)) return "Yesterday";
         return day.ToString(day.Year == today.Year ? "ddd, dd MMM" : "ddd, dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// The phone's "Auto-clear Done items" (approved S2, Android clearFor at app start): Done records whose doneAt is
+    /// older than the tab's days. Android removes them; the PC moves them to the Bin instead, so the deletion syncs and
+    /// can be undone for 30 days. Buy items that come back later (returnAt) or have a live expiry are kept, as on the phone.
+    /// </summary>
+    public static (List<Item> Items, List<CallReminder> Calls) AutoClearDue(IEnumerable<Item> items, IEnumerable<CallReminder> calls,
+        PhonePrefs phone, long now, TimeZoneInfo? zone = null)
+    {
+        long? Cut(int days) => days <= 0 ? null : now - days * 86_400_000L;
+        bool Protected(Item i) => i.Tab == Tab.SHOP && (i.ReturnAt is long r && r > now ||
+            i.ExpiryAt is long e && Clock.FromLocal(Clock.LocalDate(e, zone).AddHours(9), zone) > now);
+        // A record restored from the Bin (or edited) since it was done gets a fresh retention period, so a restore sticks.
+        var clearItems = items.Where(i => i.Done && i.DeletedAt == null && i.DoneAt is long done &&
+                Cut(phone.ClearDays(i.Tab)) is long cut && Math.Max(done, i.UpdatedAt) < cut && !Protected(i)).ToList();
+        var clearCalls = calls.Where(c => c.Done && c.DeletedAt == null && c.DoneAt is long done &&
+                Cut(phone.ClearDays(null)) is long cut && Math.Max(done, c.UpdatedAt) < cut).ToList();
+        return (clearItems, clearCalls);
+    }
+
+    /// <summary>
+    /// Groups a tab's cards the way the phone's sort does (approved S7, Android sortOf + ListScreens): DATE keeps the PC's
+    /// day groups; GROUP groups by list group (Tasks) or topic (Learn), named groups A–Z then "No Group"/"No Topic";
+    /// PRIORITY is Urgent, High, Medium, Low; NONE is one flat group in the order items were added. Inside one task list
+    /// GROUP falls back to DATE, as on the phone.
+    /// </summary>
+    public static List<DayGroup<Item>> GroupForSort(IEnumerable<Item> items, bool doneView, long now, string sort, Tab tab,
+        bool insideTaskList, TimeZoneInfo? zone = null)
+    {
+        var list = items.ToList();
+        if (sort == "GROUP" && insideTaskList) sort = "DATE";
+        long Basis(Item i) => doneView ? i.DoneAt ?? i.CreatedAt : i.DueAt ?? i.CreatedAt;
+        List<Item> Order(IEnumerable<Item> xs) => doneView
+            ? xs.OrderByDescending(Basis).ThenBy(i => i.CreatedAt).ToList()
+            : xs.OrderBy(Basis).ThenBy(i => i.CreatedAt).ToList();
+        switch (sort)
+        {
+            case "NONE":
+                return list.Count == 0 ? new() : new() { new("all", doneView ? "Done" : "All", list.OrderBy(i => i.CreatedAt).ThenBy(i => i.Id).ToList()) };
+            case "PRIORITY":
+                int Rank(Item i) => i.Priority switch { Priority.URGENT => 0, Priority.HIGH => 1, Priority.LOW => 3, _ => 2 };
+                string[] labels = { "Urgent", "High", "Medium", "Low" };
+                return list.GroupBy(Rank).OrderBy(g => g.Key)
+                    .Select(g => new DayGroup<Item>("p" + g.Key, labels[g.Key], Order(g))).ToList();
+            case "GROUP":
+                string? Name(Item i) { var n = (tab == Tab.LEARN ? i.Topic : i.Group)?.Trim(); return string.IsNullOrEmpty(n) ? null : n; }
+                var none = tab == Tab.LEARN ? "No Topic" : "No Group";
+                return list.GroupBy(Name)
+                    .OrderBy(g => g.Key == null).ThenBy(g => g.Key?.ToLowerInvariant(), StringComparer.Ordinal)
+                    .Select(g => new DayGroup<Item>("g:" + (g.Key ?? ""), g.Key ?? none, Order(g))).ToList();
+            default:
+                return GroupByDay(list, doneView, now, zone);
+        }
+    }
 }
 
 public sealed record CompleteResult<T>(T Record, string Message);
