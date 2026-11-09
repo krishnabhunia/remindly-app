@@ -1,25 +1,21 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Remindly.Core.Sync;
 
 public enum CloudStatus { SignedOut, Paused, Connecting, Syncing, UpToDate, Error }
 
-/// <summary>
-/// Bidirectional Firestore reconciliation, with a read-before-write first connection.
-/// Android's existing collections use a JSON envelope, LWW timestamps and deletion tombstones.
-/// The desktop preserves unknown Android fields before writing a modified record back.
-/// </summary>
+/// <summary>Read-before-write, non-destructive Firestore reconciliation for Android and Windows.</summary>
 public sealed class DesktopCloudSync : IDisposable
 {
     private readonly FirestoreTransport _transport;
     private readonly FirebaseAuth _auth;
     private readonly Func<RemindlyData> _snapshot;
     private readonly Action<RemindlyData> _apply;
+    private readonly Func<DateTimeOffset> _now;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, Dictionary<string, CloudDocument>> _cache = new();
     private readonly Dictionary<string, long> _watermarks = new();
-    private DateTimeOffset _lastFullRead = DateTimeOffset.MinValue;
+    private readonly FullReadSchedule _fullReads = new();
     private CancellationTokenSource? _loopCancel;
     private Task? _loop;
     private bool _disposed;
@@ -33,26 +29,20 @@ public sealed class DesktopCloudSync : IDisposable
     public event Action? Changed;
 
     public DesktopCloudSync(FirestoreTransport transport, FirebaseAuth auth,
-        Func<RemindlyData> snapshot, Action<RemindlyData> apply)
+        Func<RemindlyData> snapshot, Action<RemindlyData> apply, Func<DateTimeOffset>? now = null)
     {
         _transport = transport;
         _auth = auth;
         _snapshot = snapshot;
         _apply = apply;
+        _now = now ?? (() => DateTimeOffset.UtcNow);
         _auth.Changed += OnAuthChanged;
     }
 
     private void OnAuthChanged()
     {
-        // A new Google account must never reuse another account's cached Firestore data.
-        var uid = _auth.Uid;
-        if (_cachedUserId != uid)
-        {
-            _cache.Clear();
-            _watermarks.Clear();
-            _lastFullRead = DateTimeOffset.MinValue;
-            _cachedUserId = uid;
-        }
+        // Cancel the old session immediately. Cache changes happen ONLY under _gate.
+        _loopCancel?.Cancel();
         SetEnabled(Enabled);
     }
 
@@ -82,45 +72,66 @@ public sealed class DesktopCloudSync : IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                try { await SyncNowAsync(ct); }
+                try { await SyncCycleAsync(false, ct); }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
-                catch (Exception ex)
-                {
-                    Log.Error("Cloud sync cycle failed", ex);
-                    Report(CloudStatus.Error, Progress, ex.Message);
-                }
+                catch (Exception ex) { Log.Error("Cloud sync cycle failed", ex); }
                 try { await Task.Delay(TimeSpan.FromSeconds(15), ct); }
                 catch (OperationCanceledException) { break; }
             }
         }, ct);
     }
 
-    public async Task SyncNowAsync(CancellationToken ct = default)
+    /// <summary>Manual retry always bypasses timestamp watermarks, including late offline writes.</summary>
+    public Task SyncNowAsync(CancellationToken ct = default) => SyncCycleAsync(true, ct);
+
+    internal async Task SyncCycleAsync(bool forceFullRead, CancellationToken ct = default)
     {
         if (!Enabled || !_auth.IsSignedIn) throw new InvalidOperationException("Sign in and enable cloud sync first.");
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(ct, _loopCancel?.Token ?? CancellationToken.None);
+        ct = session.Token;
         await _gate.WaitAsync(ct);
         try
         {
+            var uid = _auth.Uid;
+            void CheckSession()
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!Enabled || !_auth.IsSignedIn || uid != _auth.Uid)
+                    throw new OperationCanceledException("Cloud account changed during sync.");
+            }
+            CheckSession();
+            if (_cachedUserId != uid)
+            {
+                _cache.Clear();
+                _watermarks.Clear();
+                _fullReads.Clear();
+                _cachedUserId = uid;
+            }
             Report(CloudStatus.Syncing, 5);
-            // A deep snapshot and an apply callback are marshalled to the WPF UI thread by
-            // the caller. DataStore.MergeInto is LWW, so concurrent edits are not overwritten.
             var before = _snapshot();
             var incoming = new RemindlyData();
             var uploads = new List<(string collection, CloudDocument desired, CloudDocument? old)>();
+            int unreadable = 0;
 
             async Task Reconcile<T>(string collection, IEnumerable<T> local, Action<List<T>> accept,
                 Func<T, long> id, Func<T, long> stamp)
             {
-                bool fullRead = !_cache.ContainsKey(collection) ||
-                                DateTimeOffset.UtcNow - _lastFullRead > TimeSpan.FromHours(24);
+                CheckSession();
+                bool fullRead = forceFullRead || !_cache.ContainsKey(collection) || _fullReads.IsDue(collection, _now());
                 var changed = fullRead
                     ? await _transport.ReadCollectionAsync(collection, ct)
                     : await _transport.ReadChangedCollectionAsync(collection, _watermarks[collection], ct);
-                if (fullRead) _cache[collection] = changed;
+                CheckSession();
+                if (fullRead)
+                {
+                    _cache[collection] = changed;
+                    // Incremental reads must not move the full-read deadline.
+                    _fullReads.Completed(collection, _now());
+                }
                 else foreach (var d in changed) _cache[collection][d.Key] = d.Value;
                 var remote = _cache[collection];
-                _watermarks[collection] = remote.Count == 0 ? 0 :
-                    Math.Max(_watermarks.GetValueOrDefault(collection), remote.Values.Max(x => x.UpdatedAt));
+                long maxStamp = remote.Count == 0 ? 0 : remote.Values.Max(x => x.UpdatedAt);
+                _watermarks[collection] = fullRead ? maxStamp : Math.Max(_watermarks.GetValueOrDefault(collection), maxStamp);
                 var added = new List<T>();
                 var localById = local.ToDictionary(x => id(x).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 foreach (var d in remote.Values)
@@ -131,9 +142,13 @@ public sealed class DesktopCloudSync : IDisposable
                         if (d.SchemaVer < CloudWire.Schema && localById.TryGetValue(d.Id, out var localExisting))
                             wire = CloudWire.OverlayOlderWriter(wire, JsonSerializer.Serialize(localExisting, Json.Options));
                         var obj = JsonSerializer.Deserialize<T>(wire, Json.Options);
-                        if (obj != null) added.Add(obj);
+                        if (obj != null) added.Add(obj); else unreadable++;
                     }
-                    catch (JsonException) { Log.Warn($"Unreadable cloud record in {collection}; preserved on server."); }
+                    catch (JsonException)
+                    {
+                        unreadable++;
+                        Log.Warn($"Unreadable cloud record in {collection}; preserved on server.");
+                    }
                 }
                 accept(added);
                 foreach (var rec in local)
@@ -154,50 +169,26 @@ public sealed class DesktopCloudSync : IDisposable
                 x => x.Id, x => x.UpdatedAt > 0 ? x.UpdatedAt : x.CreatedAt);
             await Reconcile("places", before.Places, list => incoming.Places = list, x => x.Id, x => x.UpdatedAt);
             await Reconcile("shops", before.Shops, list => incoming.Shops = list, x => x.Id, x => x.UpdatedAt);
-            _lastFullRead = DateTimeOffset.UtcNow;
             Report(CloudStatus.Syncing, 55);
 
-            // Android v2.11 currently keeps cities/chains/products local. Do NOT publish
-            // apparently synced values until Android also has readers and writers for them.
-            // Windows keeps these records via its independent local JSON and backups.
-
+            // Catalogue entities remain local-only. Task lists, unlike catalogues, already
+            // have an Android reader/writer in settings/app and MUST be reconciled here.
             var settingsDoc = await _transport.ReadSettingsAsync(ct);
-            if (settingsDoc != null)
-            {
-                var settingsJson = JsonNode.Parse(settingsDoc.Json) as JsonObject;
-                if (settingsJson != null)
-                {
-                    var cloudLists = settingsJson["shopLists"]?.Deserialize<List<ShopList>>(Json.Options) ?? new();
-                    incoming.Settings = new AppSettings { ShopLists = cloudLists };
-                    var mergedLists = ShopLists.Merge(cloudLists, before.Settings.ShopLists);
-                    // An empty/fresh desktop may not replace the phone's existing settings.
-                    // Only upload the list patch when there is an actual NEWER local list.
-                    bool desktopNewer = before.Settings.ShopLists.Any(l =>
-                        !cloudLists.Any(c => c.Id == l.Id && c.UpdatedAt >= l.UpdatedAt));
-                    if (desktopNewer)
-                    {
-                        settingsJson["shopLists"] = JsonSerializer.SerializeToNode(mergedLists, Json.Options);
-                        var nextStamp = Math.Max(settingsDoc.UpdatedAt + 1, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                        settingsJson["settingsUpdatedAt"] = nextStamp;
-                        uploads.Add(("settings", new CloudDocument("app", settingsJson.ToJsonString(), nextStamp, CloudWire.Schema), settingsDoc));
-                    }
-                }
-            }
+            CheckSession();
+            var settingsPlan = CloudListSettings.Reconcile(settingsDoc, before.Settings, _now().ToUnixTimeMilliseconds());
+            incoming.Settings = settingsPlan.Incoming;
+            if (settingsPlan.Upload is { } settingsUpload) uploads.Add(("settings", settingsUpload, settingsDoc));
 
-            // Pull is applied FIRST, always through the local merge and never as a replace.
-            // Even an empty fresh profile cannot erase the phone's Firestore records.
+            CheckSession();
             _apply(incoming);
             Report(CloudStatus.Syncing, 70);
-
             foreach (var (collection, desired, old) in uploads)
             {
-                ct.ThrowIfCancellationRequested();
+                CheckSession();
                 CloudDocument saved;
                 try { saved = await _transport.WriteAsync(collection, desired, old, ct); }
                 catch (HttpRequestException)
                 {
-                    // A simultaneous phone write can invalidate our updateTime precondition.
-                    // Force a new full read rather than repeatedly retrying the stale cache.
                     if (collection != "settings")
                     {
                         _cache.Remove(collection);
@@ -205,15 +196,24 @@ public sealed class DesktopCloudSync : IDisposable
                     }
                     throw;
                 }
+                CheckSession();
                 if (collection != "settings" && _cache.TryGetValue(collection, out var docs))
                 {
                     docs[desired.Id] = saved;
                     _watermarks[collection] = Math.Max(_watermarks[collection], desired.UpdatedAt);
                 }
             }
-
-            LastSuccessAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (unreadable > 0)
+                throw new InvalidOperationException($"{unreadable} cloud record(s) could not be read. They were preserved; synchronization is incomplete.");
+            CheckSession();
+            LastSuccessAt = _now().ToUnixTimeMilliseconds();
             Report(CloudStatus.UpToDate, 100);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Report(CloudStatus.Error, Progress, ex.Message);
+            throw;
         }
         finally { _gate.Release(); }
     }
@@ -226,4 +226,13 @@ public sealed class DesktopCloudSync : IDisposable
         _loopCancel?.Cancel();
         _transport.Dispose();
     }
+}
+
+internal sealed class FullReadSchedule
+{
+    private readonly Dictionary<string, DateTimeOffset> _completed = new();
+    public bool IsDue(string collection, DateTimeOffset now) =>
+        !_completed.TryGetValue(collection, out var last) || now - last >= TimeSpan.FromHours(24);
+    public void Completed(string collection, DateTimeOffset now) => _completed[collection] = now;
+    public void Clear() => _completed.Clear();
 }
