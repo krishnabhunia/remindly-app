@@ -40,7 +40,7 @@ public static class UpdateLogic
     public static string ReleasesAtomUrl => ReleasesUrl + ".atom";
 
     public static bool IsWindowsTag(string? tag) => !string.IsNullOrWhiteSpace(tag) &&
-        (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:\.\d+)*)?$", RegexOptions.IgnoreCase) ||
+        (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:[0-9]{3}|(?:\.\d+)*))?$", RegexOptions.IgnoreCase) ||
          Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-" + BetaSuffix + ")?$", RegexOptions.IgnoreCase));
 
     /// <summary>A unified beta suffix: "beta007" (short, BT1 A) or the older "beta.&lt;PR&gt;.&lt;run&gt;".</summary>

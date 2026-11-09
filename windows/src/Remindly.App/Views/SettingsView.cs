@@ -123,7 +123,9 @@ public sealed class SettingsView : ScrollViewer, IPage
             RefreshUpdates();
         }, "Optional previews. Stable releases remain the default."));
         upd.Children.Add(Detach(_updateTimes));
-        upd.Children.Add(Ui.Row(Detach(_checkBtn), Detach(_installBtn), Ui.Btn("Releases page", () => InstallInfo.OpenUrl(UpdateLogic.ReleasesUrl))));
+        upd.Children.Add(Ui.Row(Detach(_checkBtn), Detach(_installBtn),
+            Ui.Btn("ⓘ What's New / Implementations", async () => await ShowInstalledReleaseNotesAsync()),
+            Ui.Btn("Releases page", () => InstallInfo.OpenUrl(UpdateLogic.ReleasesUrl))));
         upd.Children.Add(Detach(_updateProgress));
         upd.Children.Add(Detach(_updateStatus));
         _root.Children.Add(Card(upd));
@@ -346,8 +348,18 @@ public sealed class SettingsView : ScrollViewer, IPage
         channel.Items.Add("Beta only");
         channel.SelectedIndex = 0;
         root.Children.Add(Ui.Row(mode, channel));
-        var options = new ListBox { Height = 290, Margin = new Thickness(0, 0, 0, 10) };
+        var options = new ListBox { Height = 235, Margin = new Thickness(0, 0, 0, 10) };
         root.Children.Add(options);
+        var releaseSummary = new TextBlock { Text = "Select a release to see its actual implementations.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
+        root.Children.Add(releaseSummary);
+        var seeChanges = new Button { Content = "ⓘ What's New in selected version", IsEnabled = false,
+            Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 9), HorizontalAlignment = HorizontalAlignment.Left };
+        seeChanges.Click += (_, _) =>
+        {
+            if (options.SelectedItem is VersionChoice choice) ReleaseNotesWindow.Show(window, choice.Release);
+        };
+        root.Children.Add(seeChanges);
         var warning = new TextBlock
         {
             Text = "Before applying, Remindly backs up its data and verifies the download. Older installed-app downgrades need installer compatibility validation.",
@@ -367,6 +379,7 @@ public sealed class SettingsView : ScrollViewer, IPage
             options.ItemsSource = filtered;
             options.SelectedItem = null;
             apply.IsEnabled = false;
+            seeChanges.IsEnabled = false;
             apply.Content = "Select a version to continue";
             if (filtered.Count == 0) warning.Text = "No Windows release with a published checksum matches this filter.";
             else warning.Text = "Your data will be backed up before installation. Download checksums are verified before replacement; an older version may not read newer data.";
@@ -376,10 +389,17 @@ public sealed class SettingsView : ScrollViewer, IPage
         options.SelectionChanged += (_, _) =>
         {
             apply.IsEnabled = options.SelectedItem is VersionChoice;
+            seeChanges.IsEnabled = options.SelectedItem is VersionChoice;
             if (options.SelectedItem is VersionChoice choice)
+            {
                 apply.Content = mode.SelectedIndex == 1
                     ? $"Review rollback to v{choice.Release.DisplayVersion}"
                     : $"Install v{choice.Release.DisplayVersion}";
+                var changes = ReleaseNotes.Parse(choice.Release.DisplayVersion, choice.Release.Body);
+                releaseSummary.Text = changes.Count == 0 ? "Implementation details were not published for this release."
+                    : $"Includes {changes.Count} documented implementation(s): " + string.Join("; ", changes.Take(3).Select(c => c.Title))
+                      + (changes.Count > 3 ? "…" : "") + ". Select What's New to read every detail.";
+            }
         };
         apply.Click += async (_, _) =>
         {
@@ -412,6 +432,20 @@ public sealed class SettingsView : ScrollViewer, IPage
         };
         Populate();
         window.ShowDialog();
+    }
+
+    private async Task ShowInstalledReleaseNotesAsync()
+    {
+        var version = UpdateService.CurrentDisplayVersion;
+        IReadOnlyList<ReleaseInfo> releases = [];
+        try { if (App.Updates is { } updater) releases = await updater.ListVersionsAsync(CancellationToken.None); }
+        catch { /* The 2.16.0 implementation catalog also works offline. */ }
+        var installed = releases.FirstOrDefault(r =>
+            string.Equals(r.DisplayVersion, version, StringComparison.OrdinalIgnoreCase));
+        installed ??= new ReleaseInfo(UpdateLogic.ParseVersion(version) ?? new Version(0, 0, 0),
+            "v" + version, "Remindly " + version, UpdateLogic.ReleasesUrl, null,
+            version.Contains("-beta", StringComparison.OrdinalIgnoreCase), []);
+        ReleaseNotesWindow.Show(Window.GetWindow(this), installed);
     }
 
     private void Import()

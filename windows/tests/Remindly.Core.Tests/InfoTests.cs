@@ -114,6 +114,6 @@ public class InfoTests
         Assert.Equal(new[] { "Use ", "Info", " or ", "F1", " now" }, runs.Select(r => r.Text));
         Assert.True(runs[1].Bold);
         Assert.True(runs[3].Code);
-        Assert.NotNull(InfoResources.WhatsNew("2.17.0-beta001"));
+        Assert.NotNull(InfoResources.WhatsNew("2.18.0-beta001"));
     }
 }

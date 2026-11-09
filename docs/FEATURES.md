@@ -24,5 +24,7 @@ What the Remindly Windows app can do today, and the version that first had it (s
 | 20 | Account and sync | Sign in with Google and sync live with the Android app through Firestore; Settings → Account & Sync shows the state and Sync now. | 2.16.0 |
 | 21 | Sync in the header | The top bar shows your account and the sync state. | 2.16.0 |
 | 22 | Deleting with sync | Delete forever and Empty the Bin hide the records on this PC and keep the deletion for the phone. | 2.16.0 |
-| 23 | Info window | ⓘ next to the version, F1 or Settings → About: this build, what's implemented, what's new and what's under the hood, with Copy build info. | 2.17.0 |
-| 24 | Short beta names | Test builds are named x.y.z-betaNNN (for example 2.17.0-beta001) and show a Beta chip next to the version. | 2.17.0 |
+| 23 | Short beta names | Test builds are named x.y.z-betaNNN (for example 2.17.0-beta001); updates rank them above older beta names and below the stable version. | 2.17.0 |
+| 24 | Release notes | Settings → Updates → What's New / Implementations shows what a release contains, also for a version chosen in Version history. | 2.17.0 |
+| 25 | Info window | ⓘ next to the version, F1 or Settings → About: this build, what's implemented, what's new and what's under the hood, with Copy build info. | 2.18.0 |
+| 26 | Beta chip | A test build shows a small Beta chip next to the version in every design. | 2.18.0 |

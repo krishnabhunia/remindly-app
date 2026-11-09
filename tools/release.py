@@ -11,6 +11,7 @@ import zipfile
 from beta_tag import GitHubApi, beta_name, reserve
 
 SEMVER = re.compile(r"^(?:win-)?v?(\d+)\.(\d+)(?:\.(\d+))?$")
+BETA_TAG = re.compile(r"^v(?P<core>\d+\.\d+\.\d+)-beta(?P<serial>\d{3})$")
 
 
 def parse_stable(tag):
@@ -47,6 +48,27 @@ def android_code(base, beta_build=None):
     return code
 
 
+def next_beta_serial(tags, core):
+    """The next short beta of x.y.z from a list of tag names (local dry runs; CI reserves it with beta_tag.py).
+
+    Historical PR/run tags stay valid but do not consume three-digit serials.
+    The GitHub Actions beta concurrency group serializes planning through
+    publication, so two pull requests cannot allocate the same serial.
+    """
+    used = set()
+    for tag in tags:
+        match = BETA_TAG.fullmatch(tag.strip())
+        if match and match["core"] == core:
+            number = int(match["serial"])
+            if number == 0:
+                raise ValueError("Beta 000 is reserved")
+            used.add(number)
+    serial = max(used, default=0) + 1
+    if serial > 999:
+        raise ValueError("Three-digit beta series is exhausted; plan the next core version")
+    return serial
+
+
 def target_version(event, tags, messages, floor, already_released=None):
     """The stable x.y.z this build releases (a PR's beta is a test build of it)."""
     published = [parse_stable(t) for t in tags]
@@ -62,17 +84,18 @@ def target_version(event, tags, messages, floor, already_released=None):
 def plan(event, tags, messages, floor, run_number, already_released=None, beta_number=None):
     """PR builds are <x.y.z>-beta<NNN> (BT1 A); NNN is reserved as a tag by beta_tag.py (BT2).
 
-    Android's hidden versionCode keeps the workflow run number as its serial, exactly as before:
-    only the visible versionName changed."""
+    Android's hidden versionCode uses the beta number as its serial (since 2.17.0), so a re-run of the
+    same commit keeps its code and a later commit's beta always has a higher one; stable uses 9999."""
     target = target_version(event, tags, messages, floor, already_released)
     stable = ".".join(map(str, target))
     beta = event.get("pull_request") is not None
     if beta and beta_number is None:
-        raise ValueError("A PR build needs a reserved beta number (tools/beta_tag.py)")
-    name = beta_name(stable, int(beta_number)) if beta else stable
+        beta_number = next_beta_serial(tags, stable)  # local dry runs; CI reserves the tag (tools/beta_tag.py)
+    serial = int(beta_number) if beta else None
+    name = beta_name(stable, serial) if beta else stable
     return {"base": stable, "version": name, "tag": f"v{name}", "channel": "beta" if beta else "stable",
-            "code": android_code(target, run_number if beta else None), "zip": f"Remindly_{name}.zip",
-            "kind": change_kind(event, messages), "beta": f"{int(beta_number):03d}" if beta else ""}
+            "code": android_code(target, serial), "zip": f"Remindly_{name}.zip",
+            "kind": change_kind(event, messages), "beta": f"{serial:03d}" if beta else ""}
 
 
 def expected_entries(version):
