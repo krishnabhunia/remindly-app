@@ -34,7 +34,7 @@ public sealed class AlertWindow : Window
         Theme.Dress(this, ground: false);
 
         var state = AppState.Current;
-        int snooze = state.Settings.SnoozeMinutes;
+        int snooze = state.Phone.SnoozeMinutes;
         var kindLabel = alert.Kind switch { AlertKind.CALL => "📞 Call-back", AlertKind.SHOPPING_DAY => "🛒 Shopping day", _ => "⏰ Reminder" };
 
         var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };

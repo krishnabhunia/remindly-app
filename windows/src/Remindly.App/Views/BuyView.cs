@@ -198,14 +198,15 @@ public sealed class BuyView : DockPanel, IPage
         foreach (var i in open.Take(8))
         {
             var item = i;
-            var check = Ui.Check(false, on => { if (on) ItemsView.Toggle(item, true); }, "Bought");
+            var check = ItemsView.DoneCheck(item, "Bought");
             var sub = string.Join(" · ", new[] { ShopLists.QtySegment(i), i.ShopName }.Where(x => !string.IsNullOrWhiteSpace(x)));
             var mid = Ui.Stack(Ui.Text(i.Title, 14, FontWeights.Bold));
             if (sub.Length > 0) mid.Children.Add(Ui.Sub(sub));
+            if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) mid.Children.Add(strip);
             var price = Ui.Text(ShopLists.EstPriceOf(i) is double v ? Ui.Rupees(v) : "", 13, FontWeights.Bold, wrap: false);
             var r = new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = Ui.Columns("Auto,*,Auto", check, mid, price), Background = Brushes.Transparent };
             r.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(item); e.Handled = true; } };
-            p.Children.Add(r);
+            p.Children.Add(DoneFlow.Track(r, DoneFlow.Key(item)));
         }
         if (open.Count > 8) p.Children.Add(Ui.Sub($"+{open.Count - 8} more"));
         if (open.Count == 0) { var e = Ui.Sub("Everything is bought."); e.Margin = new Thickness(0, 10, 0, 0); p.Children.Add(e); }
@@ -258,19 +259,21 @@ public sealed class BuyView : DockPanel, IPage
             foreach (var i in gitems)
             {
                 var item = i;
-                var check = Ui.Check(false, on => { if (on) ItemsView.Toggle(item, true); }, "Bought");
+                var check = ItemsView.DoneCheck(item, "Bought");
                 check.LayoutTransform = new System.Windows.Media.ScaleTransform(1.1, 1.1);
+                UIElement titleCell = Ui.Text(i.Title, 14, FontWeights.Medium, wrap: false);
+                if (DoneFlow.Strip(DoneFlow.Key(item)) is { } strip) titleCell = Ui.Stack(titleCell, strip);
                 var listName = ShopLists.ListIdOf(i, lists) is long lid ? state.List(lid)?.Name ?? "Unsorted" : "Unsorted";
                 var price = Ui.Mono(ShopLists.EstPriceOf(i) is double v ? Ui.Rupees(v) : "—", 13, Ui.Res("InkBrush"));
                 price.HorizontalAlignment = HorizontalAlignment.Right;
-                var g = Ui.Columns(ShopCols, check, Ui.Text(i.Title, 14, FontWeights.Medium, wrap: false), Ui.Mono(ShopLists.QtySegment(i) ?? "—", 12.5),
+                var g = Ui.Columns(ShopCols, check, titleCell, Ui.Mono(ShopLists.QtySegment(i) ?? "—", 12.5),
                     Ui.Text(listName, 13, color: Ui.Res("InkSubtleBrush"), wrap: false), price);
                 g.Margin = new Thickness(12, 0, 12, 0);
                 var row = new Border { MinHeight = 40, Background = Brushes.Transparent, BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = g };
                 row.MouseEnter += (_, _) => row.Background = Ui.Res("HoverBrush");
                 row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
                 row.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(item); e.Handled = true; } };
-                rows.Children.Add(row);
+                rows.Children.Add(DoneFlow.Track(row, DoneFlow.Key(item)));
             }
         }
         var box = new Border { Background = Ui.Res("NavBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 0, 0, 6), Child = rows, VerticalAlignment = VerticalAlignment.Top };
@@ -485,7 +488,7 @@ public sealed class BuyView : DockPanel, IPage
         {
             title = title.Trim();
             if (title.Length == 0) return;
-            var item = state.NewItem(Tab.SHOP, title) with
+            var item = state.WithNewDue(state.NewItem(Tab.SHOP, title)) with
             {
                 ListId = list?.Id, Group = list?.Name, Personal = list?.Personal == true,
                 ProductId = product?.Id ?? like?.ProductId, Unit = product?.DefaultUnit ?? like?.Unit,

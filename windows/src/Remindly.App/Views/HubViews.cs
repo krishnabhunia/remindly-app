@@ -125,7 +125,7 @@ public sealed class TodayHubView : ScrollViewer, IPage
             var move = Ui.Btn("Move to today", () =>
             {
                 var snap = state.TakeSnapshot();
-                state.UpsertMany(overdue.Select(i => DesktopViews.MoveToToday(i, state.Now, state.Settings.DefaultDueHour)));
+                state.UpsertMany(overdue.Select(i => DesktopViews.MoveToTodayAt(i, state.Now, state.Phone.DueMinuteOfDay)));
                 App.Current.Main.Snack($"{overdue.Count} moved to today", () => state.Restore(snap));
             });
             move.Foreground = Ui.Res("DangerBrush");
@@ -145,19 +145,20 @@ public sealed class TodayHubView : ScrollViewer, IPage
 
         static UIElement Row(Item i)
         {
-            var time = Ui.Text(i.DueHasTime && i.DueAt is long d ? Clock.ToLocal(d).ToString("HH:mm", CultureInfo.InvariantCulture) : "Today", 15, FontWeights.ExtraBold, wrap: false);
+            var time = Ui.Text(i.DueHasTime && i.DueAt is long d ? Clock.FormatTime(d) : "Today", 15, FontWeights.ExtraBold, wrap: false);
             time.Width = 64;
-            var check = Ui.Check(false, on => { if (on) ItemsView.Toggle(i, true); }, "Done");
+            var check = ItemsView.DoneCheck(i, "Done");
             var sub = new List<string> { TabNames.Title(i.Tab) };
             if (Recurrence.Label(i) is string rep) sub.Add("repeats " + rep.ToLowerInvariant());
             if (!string.IsNullOrWhiteSpace(i.Notes)) sub.Add(i.Notes.Trim().Replace('\n', ' '));
             var mid = Ui.Stack(Ui.Text(i.Title, 15, FontWeights.Bold), Ui.Sub(string.Join(" · ", sub)));
+            if (DoneFlow.Strip(DoneFlow.Key(i)) is { } strip) mid.Children.Add(strip);
             UIElement pri = i.Priority is Priority p && p is Priority.HIGH or Priority.URGENT
                 ? Ui.Pill(PriorityNames.Label(p), p == Priority.URGENT ? Ui.Res("DangerBrush") : Ui.Res("AmberBrush"), p == Priority.URGENT ? Ui.Res("DangerSoftBrush") : Ui.Res("AmberSoftBrush"), 12, FontWeights.Bold)
                 : new Border();
             var b = new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(4, 10, 4, 10), Background = Brushes.Transparent, Child = Ui.Columns("Auto,Auto,*,Auto", time, check, mid, pri) };
             b.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(i); e.Handled = true; } };
-            return b;
+            return DoneFlow.Track(b, DoneFlow.Key(i));
         }
     }
 

@@ -33,6 +33,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         AppState.Load();
+        Clock.TimePattern = () => AppState.Current.Phone.TimePattern(Clock.WindowsIs24Hour);
         if (!IsSmokeTest) Cloud = new CloudAccount();
         Theme.Apply(AppState.Current.Settings.Design, AppState.Current.Settings.LastMode);
 

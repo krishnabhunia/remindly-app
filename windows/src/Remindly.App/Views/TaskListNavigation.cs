@@ -166,6 +166,8 @@ public sealed partial class ItemsView
             _activeTab.Content = $"Active  {scoped.Count(i => !i.Done)}";
             _doneTab.Content = $"Done  {scoped.Count(i => i.Done)}";
             _activeTab.IsChecked = !_doneView; _doneTab.IsChecked = _doneView;
+            // The count that just changed pops once (Android's count bump, approved M3).
+            if (DoneFlow.TakePulse(out bool toDone)) DoneFlow.Pulse(toDone ? _doneTab : _activeTab);
             _primaryButton.Content = tasks && location.IsOverview ? "+ New list" : _tab == Tab.LEARN ? "+ New learning item" : "+ New task";
             System.Windows.Automation.AutomationProperties.SetName(_primaryButton, _primaryButton.Content.ToString());
             _editListButton.Visibility = tasks && location.IsInsideList && CurrentList != null ? Visibility.Visible : Visibility.Collapsed;

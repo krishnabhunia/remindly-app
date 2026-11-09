@@ -23,6 +23,9 @@ internal static class TaskWorkspaceSmoke
         state.UpdateSettings(s => TaskLists.Mirror(s with { TaskLists = s.TaskLists.Concat(filler).Append(list).ToList() }));
         var item = state.NewItem(Tab.TASKS, "R1 Verify single click") with { ListId = list.Id, Group = list.Name };
         state.Upsert(item);
+        // The phone's Move-to-Done countdown, shortened for the test; animations shortened too.
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TasksMoveDelaySec = 1, CallsMoveDelaySec = 1 } });
+        (DoneFlow.CelebrateMs, DoneFlow.CollapseMs, DoneFlow.SlideMs, DoneFlow.GlowMs) = (60, 40, 60, 120);
         try
         {
             foreach (var design in Designs.All)
@@ -70,7 +73,17 @@ internal static class TaskWorkspaceSmoke
                 checkbox.IsChecked = true;
                 checkbox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 await Idle();
-                Check(state.Item(item.Id)!.Done, "checkbox completes task");
+                Check(!state.Item(item.Id)!.Done && DoneFlow.IsPending(DoneFlow.Key(item)), "tick starts the phone's countdown; nothing saved yet");
+                Check(Require<Border>(view, $"done-countdown-item-{item.Id}").IsVisible, "Moving to Done chip is shown on the card");
+                Check(Require<CheckBox>(view, $"complete-task-{item.Id}").IsChecked == true, "checkbox stays ticked during the countdown");
+                Click(Require<Button>(view, $"done-undo-item-{item.Id}"));
+                await Idle();
+                Check(!DoneFlow.IsBusy(DoneFlow.Key(item)) && !state.Item(item.Id)!.Done, "UNDO keeps the task active");
+                Check(!Descendants(view).OfType<Border>().Any(b => AutomationProperties.GetAutomationId(b) == $"done-countdown-item-{item.Id}"), "UNDO removes the chip");
+                checkbox = Require<CheckBox>(view, $"complete-task-{item.Id}");
+                checkbox.IsChecked = true;
+                checkbox.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Check(await Until(() => state.Item(item.Id)!.Done, 4000), "after the countdown and the green tick the task is Done");
                 Check(!Application.Current.Windows.OfType<ItemEditor>().Any(), "checkbox does not open editor");
                 state.Revive(state.Item(item.Id)!);
                 await Idle();
@@ -168,6 +181,7 @@ internal static class TaskWorkspaceSmoke
                 capture(main, "r1-" + design.Letter.ToLowerInvariant() + "-lists");
             }
             await IconPickerAndNames(main, check);
+            await DoneFlowAndPhone(main, check, list, item);
 
             // Simulate a list disappearing from synchronized settings; the page must recover without deleting tasks.
             main.Go(main.TasksTab);
@@ -183,6 +197,7 @@ internal static class TaskWorkspaceSmoke
         {
             foreach (var editor in Application.Current.Windows.OfType<EditorWindow>().ToArray())
             { editor.UnsavedDecisionForTest = () => MessageBoxResult.No; editor.Close(); }
+            DoneFlow.CancelAll();
             state.Restore(snapshot);
             ItemsView.CommandView = ItemsView.AllView;
             main.ChooseDesign(Designs.Fluent);
@@ -229,6 +244,83 @@ internal static class TaskWorkspaceSmoke
         Names<ProductEditor>("product-name-", "Products");
         await Idle();
         main.SetMode("TASK"); main.Go(main.TasksTab); await Idle();
+    }
+
+    /// <summary>Approved M1–M5 and S5/S8/S14: revive, delay Off, Calls countdown, phone settings in Settings and on cards.</summary>
+    private static async Task DoneFlowAndPhone(MainWindow main, Action<bool, string> check, TaskList list, Item item)
+    {
+        var state = AppState.Current;
+        main.ChooseDesign(Designs.Fluent);
+        main.Go(main.TasksTab);
+        await Idle();
+        var view = (ItemsView)main.Page.Content;
+        view.OpenTaskList(list.Id);
+        await Idle();
+        state.Complete(state.Item(item.Id)!);
+        Require<RadioButton>(view, "filter-done").IsChecked = true;
+        await Idle();
+        var done = Require<CheckBox>(view, $"complete-task-{item.Id}");
+        done.IsChecked = false;
+        done.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        check(await Until(() => !state.Item(item.Id)!.Done, 3000), "Done: untick slides the task back to Active");
+        Require<RadioButton>(view, "filter-active").IsChecked = true;
+        await Idle();
+
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TasksMoveDelaySec = 0 } });
+        await Idle();
+        var tick = Require<CheckBox>(view, $"complete-task-{item.Id}");
+        tick.IsChecked = true;
+        tick.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        check(!DoneFlow.IsPending(DoneFlow.Key(item)), "Done: delay Off has no countdown");
+        check(await Until(() => state.Item(item.Id)!.Done, 3000), "Done: delay Off goes straight to the green tick");
+        state.Revive(state.Item(item.Id)!);
+
+        // Card details from the phone: checkbox hidden on Tasks cards.
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TabCardOv = new() { ["tCardCheckbox"] = "OFF" } } });
+        await Idle();
+        check(Require<CheckBox>(view, $"complete-task-{item.Id}").Visibility == Visibility.Collapsed, "Phone: Card details hides the checkbox");
+        state.UpdateSettings(s => s with { Phone = s.Phone with { TabCardOv = new() } });
+
+        // New item's due date from the phone (Tomorrow 10:00 by default).
+        check(ItemsView.AddQuick(Tab.TASKS, "R1 Phone default due", list.Id), "Phone: quick add works");
+        var added = state.LiveItems(Tab.TASKS).First(i => i.Title == "R1 Phone default due");
+        check(added.DueAt == state.Phone.NewDue(Tab.TASKS, state.Now).DueAt, "Phone: quick add uses the phone's new-item due date");
+
+        // Calls: same countdown with UNDO.
+        main.Go(main.CallsTab);
+        await Idle();
+        var call = state.LiveCalls().First(c => !c.Done);
+        var callCheck = Require<CheckBox>(main, $"complete-call-{call.Id}");
+        callCheck.IsChecked = true;
+        callCheck.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        await Idle();
+        check(Require<Border>(main, $"done-countdown-call-{call.Id}").IsVisible, "Calls: Moving to Done chip is shown");
+        Click(Require<Button>(main, $"done-undo-call-{call.Id}"));
+        await Idle();
+        check(!state.LiveCalls().First(c => c.Id == call.Id).Done, "Calls: UNDO keeps the call-back active");
+
+        // Visible tabs and Settings → Follows your phone.
+        state.UpdateSettings(s => s with { Phone = s.Phone with { ShowLearn = false } });
+        await Idle();
+        check(main.NavEntries().All(e => e.Tab != main.LearnTab), "Phone: a tab hidden on the phone is hidden in the menu");
+        state.UpdateSettings(s => s with { Phone = s.Phone with { ShowLearn = true } });
+        main.Go(main.SettingsTab);
+        await Idle();
+        check(Require<StackPanel>(main, "settings-phone").IsVisible, "Settings: Follows your phone section is shown");
+        check(Require<TextBlock>(main, "settings-phone-source").Text.Contains("phone's defaults"), "Settings: says where the values come from");
+        main.Go(main.TasksTab);
+        await Idle();
+    }
+
+    private static async Task<bool> Until(Func<bool> condition, int timeoutMs)
+    {
+        var until = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < until)
+        {
+            if (condition()) return true;
+            await Idle();
+        }
+        return condition();
     }
 
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));

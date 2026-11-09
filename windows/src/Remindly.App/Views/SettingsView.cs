@@ -140,16 +140,11 @@ public sealed class SettingsView : ScrollViewer, IPage
         }, "Starts hidden in the notification area so reminders fire even before you open Remindly."));
         gen.Children.Add(Ui.Setting("Keep running in the notification area when the window is closed", s.CloseToTray,
             on => state.UpdateSettingsQuiet(x => x with { CloseToTray = on }), "Off: closing the window exits Remindly and no reminders fire until you start it again."));
-        var snooze = new ComboBox { Width = 90 };
-        foreach (var m in new[] { 5, 10, 15, 30, 60 }) snooze.Items.Add(m);
-        snooze.SelectedItem = new[] { 5, 10, 15, 30, 60 }.Contains(s.SnoozeMinutes) ? s.SnoozeMinutes : 10;
-        snooze.SelectionChanged += (_, _) => state.UpdateSettingsQuiet(x => x with { SnoozeMinutes = (int)snooze.SelectedItem });
-        var hour = new ComboBox { Width = 90 };
-        for (int h = 0; h < 24; h++) hour.Items.Add($"{h:00}:00");
-        hour.SelectedIndex = s.DefaultDueHour;
-        hour.SelectionChanged += (_, _) => state.UpdateSettingsQuiet(x => x with { DefaultDueHour = hour.SelectedIndex });
-        gen.Children.Add(Ui.Row(Ui.Sub("Snooze for "), snooze, Ui.Sub("  minutes      A date without a time rings at "), hour));
+        gen.Children.Add(Ui.Sub("Snooze length and the time date-only items ring now come from your phone — see Follows your phone below."));
         _root.Children.Add(Card(gen));
+
+        // ── Follows your phone (approved S1–S14, S16) ──
+        _root.Children.Add(Card(PhoneSection(state)));
 
         // ── Sharing a list ──
         var share = Section("Sharing a list", "The text is \"Groceries:-\", a blank line, then \"1. Milk - 2 / L - Urgent - Bought\".");
@@ -253,6 +248,74 @@ public sealed class SettingsView : ScrollViewer, IPage
     {
         (e.Parent as Panel)?.Children.Remove(e);
         return e;
+    }
+
+    /// <summary>The phone's settings Windows follows, read-only, with where they came from.</summary>
+    private static StackPanel PhoneSection(AppState state)
+    {
+        var p = state.Phone;
+        var sec = Section("Follows your phone", "These are Remindly's settings on your Android phone. Windows uses them so both behave the same. Change them on the phone: Remindly → Settings.");
+        WorkspaceUi.Identify(sec, "settings-phone", "Follows your phone");
+        string from = p.Source switch
+        {
+            "sync" => "Synced from your phone" + (p.SyncedAt > 0 ? " · " + Clock.FormatDayTime(p.SyncedAt) : ""),
+            "backup" => "From a phone backup" + (p.SyncedAt > 0 ? " · " + Clock.FormatDayTime(p.SyncedAt) : ""),
+            _ => "Using the phone's defaults — sign in and sync, or import a phone backup, to use your own.",
+        };
+        var source = Ui.Text(from, 13.5, FontWeights.SemiBold, p.Source.Length > 0 ? Ui.Res("SuccessBrush") : Ui.Res("InkSubtleBrush"));
+        source.Margin = new Thickness(0, 0, 0, 8);
+        WorkspaceUi.Identify(source, "settings-phone-source", from);
+        sec.Children.Add(source);
+
+        static string Secs(int s) => s == 0 ? "Off" : s + " s";
+        static string Days(int d) => d <= 0 ? "Off" : d + " days";
+        static string OnOff(bool b) => b ? "On" : "Off";
+        static string Shown(bool b) => b ? "Shown" : "Hidden";
+        Tab?[] tabs = { Tab.TASKS, Tab.LEARN, Tab.SHOP, null };
+        string Per(Func<Tab?, string> f) => string.Join(" · ", tabs.Select(t => (t switch { Tab.TASKS => "Tasks", Tab.LEARN => "Learn", Tab.SHOP => "Buy", _ => "Calls" }) + " " + f(t)));
+        string Due(Tab t)
+        {
+            var (due, timed) = p.NewDue(t, state.Now);
+            return due is long at ? Clock.FormatDay(at) + (timed ? ", " + Clock.FormatTime(at) : "") : "None";
+        }
+        var card = p.Card(Tab.TASKS);
+        var calls = new List<string>();
+        if (p.CallCardShowNumber) calls.Add("number"); if (p.CallCardShowMissedAt) calls.Add("missed at"); if (p.CallCardShowMissedCount) calls.Add("missed count");
+        if (p.CallCardShowNote) calls.Add("note"); if (p.CallCardShowLabel) calls.Add("label"); if (p.CallCardShowNext) calls.Add("next");
+        var visible = new List<string>(); if (p.ShowTasks) visible.Add("Tasks"); if (p.ShowLearn) visible.Add("Learn"); if (p.ShowCalls) visible.Add("Calls");
+        var rows = new (string Label, string Value)[]
+        {
+            ("Move-to-Done delay", Per(t => Secs(p.DelaySec(t)))),
+            ("Auto-clear Done items (to the Bin on this PC)", Per(t => Days(p.ClearDays(t)))),
+            ("Delete style", Per(t => p.ConfirmDelete(t) ? "Confirm" : "Undo")),
+            ("Card details (Tasks)", $"Priority {Shown(card.Priority)} · Date {Shown(card.DateTime)} · Checkbox {Shown(card.Checkbox)} · Repeat {Shown(card.Repeat)} · Reminder type {Shown(card.AlertType)}"),
+            ("\"Medium\" tag", Shown(p.ShowMediumTag)),
+            ("Sort", $"Tasks {p.Sort(Tab.TASKS)} · Learn {p.Sort(Tab.LEARN)}"),
+            ("Visible tabs", visible.Count > 0 ? string.Join(" · ", visible) : "None"),
+            ("Count badges", OnOff(p.Badges)),
+            ("Call card details", calls.Count > 0 ? string.Join(" · ", calls) : "Name only"),
+            ("Time format", p.TimeFormat switch { "H12" => "12-hour", "H24" => "24-hour", _ => "Phone default (follows Windows)" }),
+            ("Date-only items ring at", $"{p.DueMinuteOfDay / 60:00}:{p.DueMinuteOfDay % 60:00}"),
+            ("Snooze length", p.SnoozeMinutes + " min"),
+            ("New item's due date", $"Tasks {Due(Tab.TASKS)} · Learn {Due(Tab.LEARN)} · Buy {Due(Tab.SHOP)}"),
+            ("New item opens on", $"Tasks {p.NewSchedule(Tab.TASKS)} · Learn {p.NewSchedule(Tab.LEARN)} · Buy {p.NewSchedule(Tab.SHOP)}"),
+            ("Alerts", Per(t => OnOff(p.AlertsOn(t))) + " · \"Alerts on this PC\" can still silence this PC"),
+        };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int i = 0; i < rows.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var label = Ui.Text(rows[i].Label, 13.5, color: Ui.Res("InkSubtleBrush"));
+            var value = Ui.Text(rows[i].Value, 13.5, FontWeights.SemiBold);
+            label.Margin = value.Margin = new Thickness(0, 3, 12, 3);
+            WorkspaceUi.Identify(value, "settings-phone-" + i, rows[i].Label);
+            Grid.SetRow(label, i); Grid.SetRow(value, i); Grid.SetColumn(value, 1);
+            grid.Children.Add(label); grid.Children.Add(value);
+        }
+        sec.Children.Add(grid);
+        return sec;
     }
 
     private static StackPanel Section(string title, string? hint)
