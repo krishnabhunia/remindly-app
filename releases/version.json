@@ -1,9 +1,9 @@
 {
-  "versionCode": 218009999,
-  "versionName": "2.18.0",
-  "apk": "Remindly_2.18.0.apk",
-  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.18.0/Remindly_2.18.0.apk",
-  "sha256": "2adf1338c2b1e8855af2439ed9ca03cf1ae11926c777c58bdbd863ee2e04b154",
+  "versionCode": 218019999,
+  "versionName": "2.18.1",
+  "apk": "Remindly_2.18.1.apk",
+  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.18.1/Remindly_2.18.1.apk",
+  "sha256": "a7325adb9d2d3aea2fed23def1f07f98cc193e277c83809bd0dfd219d5f79b38",
   "sizeBytes": 16595713,
-  "notes": "New\n\u2022 \u24d8 Info next to the version in every design (A Fluent, B Day Board, C Command Dark, D Today Hub), also on F1 and in Settings \u2192 About. Four tabs:\n\u2022 This build \u2014 version, Beta or Stable, the pull request and commit it was made from, when it was built, its GitHub tag, its download and how it is installed. A test build says so at the top.\n\u2022 What's implemented \u2014 every feature with the version that first had it; search it or show only what is new in this version.\n\u2022 What's new \u2014 this section.\n\u2026"
+  "notes": "**Fix (PR #24):** Represent Android task lists, including empty lists, stable IDs, icons, pins and deletion tombstones. **Fix (PR #24):** Pull and merge taskLists through cloud settings, local persistence and Android data-only backups. **Fix (PR #24):** Patch newer Windows list edits into the existing settings document without replacing Android-only preferences or unknown task-list fields. **Fix (PR #24):** Show list cards, list-scoped tasks, Unsorted and All tasks across the existing four Windows designs. Keep the existing task layouts inside lists. **Fix (PR #24):** Add task-list selection to the item editor and respect the opened list when creating tasks. **Fix (PR #24):** List removal keeps tasks in Unsorted and retains a sync tombstone. **Fix (PR #24):** Manual Sync now performs full collection reads. Scheduled full reads record completion per collection instead of sliding the deadline on every delta poll. **Fix (PR #24):** Report malformed record/settings failures rather than claiming successful synchronization; cancel old-session work and reset caches under the sync gate. **Verification status (PR #24):** Added 13 regression tests, including a real DesktopCloudSync/FirestoreTransport cycle against a synthetic Android-shaped HTTP server. **Verification status (PR #24):** Ru"
 }
