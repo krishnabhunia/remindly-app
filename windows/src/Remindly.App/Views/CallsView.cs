@@ -61,7 +61,11 @@ public sealed class CallsView : DockPanel, IPage
         }, "Called back");
 
         var titleRow = new WrapPanel();
-        titleRow.Children.Add(new TextBlock { Text = c.Display, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+        // One click on the name opens the editor (approved F1); double-clicking the card still works.
+        var name = WorkspaceUi.Link($"call-name-{c.Id}", "Edit call-back " + c.Display, c.Display, () => CallEditor.OpenFor(c), 15);
+        name.Margin = new Thickness(0, 0, 8, 0);
+        name.VerticalAlignment = VerticalAlignment.Center;
+        titleRow.Children.Add(name);
         titleRow.Children.Add(Ui.Tag(c.Source == CallSource.AUTO ? "Auto" : "Manual", Ui.Res("BlueBrush"), Ui.Res("BlueSoftBrush")));
         if (c.RepeatMode != "OFF")
             titleRow.Children.Add(Ui.Tag("↻ " + Recurrence.Label(new Item { RepeatMode = c.RepeatMode, RepeatDays = c.RepeatDays, RepeatN = c.RepeatN, RepeatUnit = c.RepeatUnit, RepeatOrdList = c.RepeatOrdList, RepeatOrd = c.RepeatOrd, RepeatDow = c.RepeatDow }),

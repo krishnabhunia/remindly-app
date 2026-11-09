@@ -350,9 +350,36 @@ public partial class MainWindow : Window
     {
         if (_accountButton == null) return;
         var cloud = App.Cloud;
-        _accountButton.Content = cloud?.SignedIn == true
-            ? ("☁  " + (cloud.Email ?? "Connected") + " · " + cloud.Sync?.Status)
-            : "☁  Sign in with Google";
+        // A drawn cloud and a coloured dot replace the ☁ emoji, and the state is plain words, never "UpToDate".
+        var cloudIcon = Ui.Glyph(Glyphs.Cloud, 15, Ui.Res("InkBrush"));
+        cloudIcon.Margin = new Thickness(0, 0, 8, 0);
+        string name;
+        if (cloud?.SignedIn == true)
+        {
+            var status = cloud.Sync?.Status;
+            var label = SyncStatusText.Label(status);
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 8, Height = 8, Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+                Fill = SyncStatusText.Tone(status) switch
+                {
+                    SyncTone.Good => Ui.Res("SuccessBrush"),
+                    SyncTone.Busy => Ui.Res("BlueBrush"),
+                    SyncTone.Problem => Ui.Res("DangerBrush"),
+                    _ => Ui.Res("InkSubtleBrush"),
+                },
+            };
+            _accountButton.Content = Ui.Row(cloudIcon, Ui.Text(cloud.Email ?? "Connected", 13.5, wrap: false), dot,
+                Ui.Text(label, 13.5, wrap: false));
+            name = $"Account {cloud.Email ?? "connected"}, sync {label}";
+        }
+        else
+        {
+            _accountButton.Content = Ui.Row(cloudIcon, Ui.Text("Sign in with Google", 13.5, wrap: false));
+            name = "Sign in with Google";
+        }
+        System.Windows.Automation.AutomationProperties.SetAutomationId(_accountButton, "account-sync");
+        System.Windows.Automation.AutomationProperties.SetName(_accountButton, name);
         _accountButton.ToolTip = cloud?.ConfigurationError ?? "Account & Sync";
     }
 

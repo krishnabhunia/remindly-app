@@ -4,6 +4,19 @@ Each `## X.Y.Z` section is built into the app (ⓘ Info → What's new) and beco
 feed for that version. Write the section for the version a PR releases (beta builds of it show the same
 section). Versions 2.12.0 to 2.17.0 shipped without a section here; their notes are on GitHub Releases.
 
+## 2.19.0 — task lists, finished (09-Nov-2026)
+
+### New
+- **Pinned lists** sit under a **Pinned** heading above **All lists**, with a pin icon instead of the word "Pinned".
+- **Inside a list**, a **⋯** button next to **Edit list…** offers Edit list, Pin / Unpin and Delete list.
+- **Esc** goes back from a list (as Alt+Left does), unless you are typing in a box.
+- **List icons**: Edit list now has an icon picker instead of a text box. An icon set on the phone is kept.
+- **Calls, Shops and Products**: one click on the name opens it for editing, like tasks and lists.
+
+### Changed
+- The top bar shows sync in plain words (**Up to date**, **Syncing…**, **Paused**, **Sync problem**) with a
+  coloured dot and a cloud icon; Settings → Account & Sync and ⓘ Info use the same words.
+
 ## 2.18.0 — the Info window (09-Nov-2026)
 
 ### New

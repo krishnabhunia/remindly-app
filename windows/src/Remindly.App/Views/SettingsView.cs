@@ -66,7 +66,7 @@ public sealed class SettingsView : ScrollViewer, IPage
                 ? $"Google account: {cloud.Email}"
                 : "Not connected to Google", 15, FontWeights.SemiBold));
             var current = cloud.Sync;
-            sync.Children.Add(Ui.Sub($"Status: {current?.Status ?? Remindly.Core.Sync.CloudStatus.SignedOut} · " +
+            sync.Children.Add(Ui.Sub($"Status: {SyncStatusText.Label(current?.Status)} · " +
                 $"Last successful sync: {(current?.LastSuccessAt > 0 ? Clock.ToLocal(current.LastSuccessAt).ToString("dd MMM yyyy, HH:mm") : "Never")}"));
             if (!string.IsNullOrEmpty(current?.LastError)) sync.Children.Add(Ui.Sub("Sync error: " + current.LastError));
             if (current?.Status == Remindly.Core.Sync.CloudStatus.Syncing)

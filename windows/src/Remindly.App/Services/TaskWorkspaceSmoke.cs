@@ -41,6 +41,10 @@ internal static class TaskWorkspaceSmoke
                 Check(Require<Button>(view, "workspace-new").Content.ToString() == "+ New list", "overview action is New list");
                 search.Text = "R1";
                 await Idle();
+                Check(Require<StackPanel>(view, "lists-pinned-heading").IsVisible, "pinned lists have a Pinned heading");
+                Check(Require<StackPanel>(view, "lists-all-heading").IsVisible, "other lists sit under All lists");
+                Check(Require<TextBlock>(view, $"task-list-pin-{list.Id}").Text == Glyphs.Pin, "pinned list shows a pin icon");
+                Check(!Descendants(view).OfType<TextBlock>().Any(t => t.Text.Contains("· Pinned")), "no 'Pinned' word on list rows");
                 var scroll = Descendants(view).OfType<ScrollViewer>().First(s => s.ScrollableHeight > 0);
                 scroll.ScrollToVerticalOffset(150);
                 await Idle();
@@ -54,6 +58,7 @@ internal static class TaskWorkspaceSmoke
                 Check(Require<Button>(view, "workspace-new").Content.ToString() == "+ New task", "inside list cannot create a list");
                 Check(Require<Button>(view, "crumb-lists").IsVisible, "Lists breadcrumb is visible");
                 Check(Require<Button>(view, "task-back").IsVisible, "Back is visible");
+                Check(Require<Button>(view, "current-list-menu").IsVisible, "list ⋯ menu is visible inside the list");
                 Check(Require<RadioButton>(view, "filter-active").IsChecked == true, "Active initially selected");
                 Click(Require<Button>(view, $"edit-task-{item.Id}"));
                 await Idle();
@@ -135,6 +140,16 @@ internal static class TaskWorkspaceSmoke
                 state.Revive(state.Item(item.Id)!);
                 await Idle();
 
+                // Esc goes back from a list, but not while typing in the search box.
+                Check(!view.HandleWorkspaceShortcut(Key.Escape, ModifierKeys.None, Require<TextBox>(view, "workspace-search"))
+                    && view.CurrentLocation.IsInsideList,
+                    "Esc in the search box stays in the list");
+                Check(view.HandleWorkspaceShortcut(Key.Escape, ModifierKeys.None, Require<Button>(view, "current-list-menu")),
+                    "workspace handles Esc");
+                await Idle();
+                Check(!view.CurrentLocation.IsInsideList, "Esc goes back from a list");
+                Check(!Require<Button>(view, "current-list-menu").IsVisible, "list ⋯ menu hidden outside a list");
+
                 view.ShowAllTasks();
                 await Idle();
                 Click(Require<Button>(view, "workspace-new"));
@@ -152,6 +167,8 @@ internal static class TaskWorkspaceSmoke
                 await Idle();
                 capture(main, "r1-" + design.Letter.ToLowerInvariant() + "-lists");
             }
+            await IconPickerAndNames(main, check);
+
             // Simulate a list disappearing from synchronized settings; the page must recover without deleting tasks.
             main.Go(main.TasksTab);
             var currentView = (ItemsView)main.Page.Content;
@@ -170,6 +187,48 @@ internal static class TaskWorkspaceSmoke
             ItemsView.CommandView = ItemsView.AllView;
             main.ChooseDesign(Designs.Fluent);
         }
+    }
+
+    /// <summary>F14 icon picker and F1 single-click names on Calls, Shops and Products.</summary>
+    private static async Task IconPickerAndNames(MainWindow main, Action<bool, string> check)
+    {
+        var state = AppState.Current;
+        var list = TaskLists.Live(state.Settings.TaskLists).First(l => l.Name == "R1 Projects");
+        TaskListEditor.Edit(list);
+        await Idle();
+        var editor = Application.Current.Windows.OfType<TaskListEditor>().Single();
+        var icons = Descendants(editor).OfType<RadioButton>()
+            .Where(r => AutomationProperties.GetAutomationId(r).StartsWith("task-list-icon-")).ToList();
+        check(icons.Count == TaskListIcons.Presets.Count, "Icons: picker shows every preset");
+        check(icons.Count(r => r.IsChecked == true) == 1 && (string)icons.Single(r => r.IsChecked == true).Content == TaskListIcons.Default,
+            "Icons: a list without an icon shows the default selected");
+        check(!Descendants(editor).OfType<TextBox>().Any(t => AutomationProperties.GetAutomationId(t) != "task-list-name"),
+            "Icons: no free-text icon box");
+        var briefcase = icons.First(r => (string)r.Content == "💼");
+        briefcase.IsChecked = true;
+        Click(Require<Button>(editor, "editor-save"));
+        await Idle();
+        check(TaskLists.Live(state.Settings.TaskLists).First(l => l.Id == list.Id).Icon == "💼", "Icons: chosen icon is saved");
+
+        void Names<TEditor>(string id, string what) where TEditor : Window
+        {
+            var name = Descendants(main).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetAutomationId(b).StartsWith(id));
+            check(name != null, $"{what}: name is a button");
+            if (name == null) return;
+            Click(name);
+            check(Application.Current.Windows.OfType<TEditor>().Count() == 1, $"{what}: one click on the name opens one editor");
+            foreach (var w in Application.Current.Windows.OfType<TEditor>().ToArray()) w.Close();
+        }
+        main.SetMode("TASK"); main.Go(main.CallsTab); await Idle();
+        Names<CallEditor>("call-name-", "Calls");
+        await Idle();
+        main.SetMode("SHOP"); main.Go(main.ShopsTab); await Idle();
+        Names<ShopEditor>("shop-name-", "Shops");
+        await Idle();
+        main.Go(main.ProductsTab); await Idle();
+        Names<ProductEditor>("product-name-", "Products");
+        await Idle();
+        main.SetMode("TASK"); main.Go(main.TasksTab); await Idle();
     }
 
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));

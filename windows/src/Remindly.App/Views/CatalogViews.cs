@@ -53,7 +53,7 @@ public sealed class ShopsView : DockPanel, IPage
                         state.DeleteShop(s);
                         App.Current.Main.Snack($"Deleted {s.Name}", () => state.UpsertShop(s));
                     }, "Delete"));
-                _list.Children.Add(Ui.Card(Ui.Columns("*,Auto", Ui.Stack(Ui.Row(Ui.Text(s.Name, 15, FontWeights.SemiBold), new Border { Width = 8 }, tags), meta), actions), () => ShopEditor.OpenFor(s)));
+                _list.Children.Add(Ui.Card(Ui.Columns("*,Auto", Ui.Stack(Ui.Row(WorkspaceUi.Link($"shop-name-{s.Id}", "Edit shop " + s.Name, s.Name, () => ShopEditor.OpenFor(s), 15), new Border { Width = 8 }, tags), meta), actions), () => ShopEditor.OpenFor(s)));
             }
         }
     }
@@ -162,7 +162,7 @@ public sealed class ProductsView : DockPanel, IPage
                         state.DeleteProduct(p);
                         App.Current.Main.Snack($"Deleted {p.Name}", () => state.UpsertProduct(p));
                     }, "Delete"));
-                _list.Children.Add(Ui.Card(Ui.Columns("*,Auto", Ui.Stack(Ui.Text(p.Name, 15, FontWeights.SemiBold), Ui.Sub(string.Join("  ·  ", meta))), actions), () => ProductEditor.OpenFor(p)));
+                _list.Children.Add(Ui.Card(Ui.Columns("*,Auto", Ui.Stack(WorkspaceUi.Link($"product-name-{p.Id}", "Edit product " + p.Name, p.Name, () => ProductEditor.OpenFor(p), 15), Ui.Sub(string.Join("  ·  ", meta))), actions), () => ProductEditor.OpenFor(p)));
             }
         }
     }
