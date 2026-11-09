@@ -1,6 +1,6 @@
 import unittest
 
-from beta_tag import ReservationError, beta_name, reserve, short_tags
+from beta_tag import ReservationError, beta_name, reserve, short_tags, tag_commit
 
 HEAD = "a" * 40
 OTHER = "b" * 40
@@ -19,6 +19,13 @@ class FakeApi:
         refs = [{"ref": f"refs/tags/{n}", "object": {"type": "commit", "sha": s}} for n, s in self.tags.items()]
         refs += [{"ref": f"refs/tags/{n}", "object": {"type": "tag", "sha": "tag:" + s}} for n, s in self.annotated.items()]
         return [r for r in refs if r["ref"].startswith(f"refs/tags/{prefix}")]
+
+    def ref_object(self, tag):
+        if tag in self.tags:
+            return {"type": "commit", "sha": self.tags[tag]}
+        if tag in self.annotated:
+            return {"type": "tag", "sha": "tag:" + self.annotated[tag]}
+        return None
 
     def commit_of(self, obj):
         return obj["sha"][4:] if obj["type"] == "tag" else obj["sha"]
@@ -74,6 +81,12 @@ class BetaTagTests(unittest.TestCase):
         self.assertEqual("2.17.0-beta999", reserve(api, "2.17.0", "v", HEAD)["version"])
         with self.assertRaisesRegex(ReservationError, "Bump the version"):
             reserve(api, "2.17.0", "v", "c" * 40)
+
+    def test_publication_check_peels_annotated_tags(self):
+        api = FakeApi({"v2.18.0-beta001": HEAD}, annotated={"v2.18.0-beta002": HEAD})
+        self.assertEqual(HEAD, tag_commit(api, "v2.18.0-beta001"))
+        self.assertEqual(HEAD, tag_commit(api, "v2.18.0-beta002"))  # the tag object's own SHA is never compared
+        self.assertIsNone(tag_commit(api, "v2.18.0-beta003"))
 
     def test_names_are_three_digits_and_need_a_full_head_sha(self):
         self.assertEqual("15.0.0-beta007", beta_name("15.0.0", 7))

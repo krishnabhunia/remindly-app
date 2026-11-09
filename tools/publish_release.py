@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from beta_tag import GitHubApi, tag_commit
 from changelog import CHANGELOG, notes, section as changelog_section
 from release import verify_package
 from release_notes import load_release_pulls, release_text
@@ -49,8 +50,9 @@ def main():
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
     if beta:
         # BT2: the beta tag was reserved on the PR head commit by the plan step; publish ON it.
-        ref = command("gh", "api", f"repos/{repo}/git/ref/tags/{tag}", "--jq", ".object.sha", capture=True, check=False)
-        if ref.returncode != 0 or ref.stdout.strip() != sha:
+        # Peel an annotated tag to its commit, exactly as the reservation does.
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if tag_commit(GitHubApi(repo, token), tag) != sha:
             raise ValueError(f"Reserved beta tag {tag} is missing or not on {sha}")
     info = gh("release", "view", tag, "--json", "isDraft,targetCommitish", capture=True, check=False)
     if info.returncode == 0:

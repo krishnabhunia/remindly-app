@@ -30,9 +30,14 @@ def change_kind(event, messages):
         if f"release:{kind}" in labels:
             return kind
     text = event.get("pull_request", {}).get("title", "") + "\n" + messages
+    # A squash merge lists the branch commits as "* feat(...): …" lines, and Claude's PR titles read
+    # "Claude : Feature: …" (or "Claude : Fix: …"): both count like a plain Conventional Commit line.
+    text = re.sub(r"(?m)^[ \t]*[*-][ \t]+", "", text)
     if re.search(r"(?m)^(?:\w+)(?:\([^\n]*\))?!:|^BREAKING CHANGE:", text):
         return "major"
-    return "minor" if re.search(r"(?mi)^feat(?:\([^\n]*\))?:", text) else "patch"
+    if re.search(r"(?mi)^feat(?:\([^\n]*\))?:|^Claude\s*:\s*Feature\s*:", text):
+        return "minor"
+    return "patch"
 
 
 def android_code(base, beta_build=None):

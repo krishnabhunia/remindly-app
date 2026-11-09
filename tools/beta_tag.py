@@ -49,6 +49,12 @@ def next_number(numbers, core):
     return n
 
 
+def tag_commit(api, tag):
+    """The commit a tag points at (annotated tags peeled), or None when the tag does not exist."""
+    obj = api.ref_object(tag)
+    return api.commit_of(obj) if obj else None
+
+
 def reserve(api, core, prefix, head_sha, attempts=ATTEMPTS):
     """Returns {"number", "version", "tag", "reused"}; api has refs(prefix), commit_of(obj) and create_tag(tag, sha)."""
     if not re.fullmatch(r"[0-9a-f]{40}", head_sha or ""):
@@ -92,6 +98,14 @@ class GitHubApi:
         if status != 200 or not isinstance(data, list):
             raise ReservationError(f"Listing tags failed (HTTP {status})")
         return data
+
+    def ref_object(self, tag):
+        status, data = self._call("GET", f"/repos/{self.repo}/git/ref/tags/{urllib.parse.quote(tag)}")
+        if status == 404:
+            return None
+        if status != 200 or not isinstance(data, dict):
+            raise ReservationError(f"Reading tag {tag} failed (HTTP {status})")
+        return data.get("object")
 
     def commit_of(self, obj):
         for _ in range(5):  # annotated tags point at a tag object; peel to the commit

@@ -35,6 +35,16 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(expected, plan({}, ["v2.12.0"], message, "2.12.0", 5)["version"])
         self.assertEqual("major", change_kind({"pull_request": {"labels": [{"name": "release:major"}]}}, "fix: something"))
 
+    def test_squash_and_claude_titled_merges_still_count_as_features(self):
+        squash = ("Claude : Feature: short beta names and Info window (BT1 A, IN1, #19) — 2.18.0 (#20)\n\n"
+                  "* feat(ci): short three-digit beta versions and in-app Info window\n\n* Merge main into the branch\n")
+        self.assertEqual("2.18.0", plan({}, ["v2.17.0", "v2.16.0"], squash, "2.17.0", 50)["version"])
+        self.assertEqual("minor", change_kind({}, "Claude : Feature: Info window (#20)"))
+        self.assertEqual("minor", change_kind({"pull_request": {"title": "Claude : Feature: x", "labels": []}}, ""))
+        self.assertEqual("patch", change_kind({}, "Claude : Fix: wrong label (#30)\n\n* fix(ui): label"))
+        self.assertEqual("major", change_kind({}, "Claude : Feature: x (#31)\n\n* feat!: new data format"))
+        self.assertEqual("patch", change_kind({}, "Merge pull request #9\n\nNot a feat: line"))
+
     def test_versions_advance_across_channels(self):
         self.assertLess(android_code((2, 12, 0), 20), android_code((2, 12, 0), 21))
         self.assertLess(android_code((2, 12, 0)), android_code((2, 12, 1), 1))
