@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from beta_tag import GitHubApi, tag_commit
+from changelog import CHANGELOG, notes, section as changelog_section
 from release import verify_package
 from release_notes import load_release_pulls, release_text
 
@@ -38,12 +40,20 @@ def main():
     notes_path = Path(args.dist) / "release-notes.md"
     notes_path.write_text(full_notes, encoding="utf-8")
     user_summary = " ".join(line[2:] for line in full_notes.splitlines() if line.startswith("- "))[:1300]
+    # The feed's notes: this version's windows/CHANGELOG.md section when it has one, else the PR summary.
+    changelog_notes = notes(plan["base"]) if changelog_section(CHANGELOG.read_text(encoding="utf-8"), plan["base"]) else ""
     manifest = {"versionCode": plan["code"], "versionName": plan["version"], "apk": apk.name,
                 "apkUrl": f"https://github.com/{repo}/releases/download/{tag}/{apk.name}",
                 "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(), "sizeBytes": apk.stat().st_size,
-                "notes": user_summary}
+                "notes": changelog_notes or user_summary}
     manifest_file = Path(args.dist) / "version.json"
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
+    if beta:
+        # BT2: the beta tag was reserved on the PR head commit by the plan step; publish ON it.
+        # Peel an annotated tag to its commit, exactly as the reservation does.
+        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if tag_commit(GitHubApi(repo, token), tag) != sha:
+            raise ValueError(f"Reserved beta tag {tag} is missing or not on {sha}")
     info = gh("release", "view", tag, "--json", "isDraft,targetCommitish", capture=True, check=False)
     if info.returncode == 0:
         existing = json.loads(info.stdout)

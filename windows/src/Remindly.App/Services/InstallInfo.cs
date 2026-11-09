@@ -40,6 +40,23 @@ public static class InstallInfo
 
     public static string ModeLabel => IsInstalledMode() ? "Installed" : "Portable";
 
+    /// <summary>Info → This build: "installer, per-user" (Setup's default), "installer, all users" or "portable".</summary>
+    public static string InstalledAs
+    {
+        get
+        {
+            if (!IsInstalledMode()) return "portable";
+            try
+            {
+                using var k = Registry.CurrentUser.OpenSubKey(@"Software\Remindly");
+                static string Norm(string s) => s.Trim().Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
+                if (k?.GetValue("InstallDir") is string dir && Norm(dir) == Norm(ExeDirectory)) return "installer, per-user";
+            }
+            catch { /* ignore */ }
+            return "installer, all users";
+        }
+    }
+
     public static bool StartsWithWindows()
     {
         try

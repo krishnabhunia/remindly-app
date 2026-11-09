@@ -8,6 +8,8 @@ import re
 import subprocess
 import zipfile
 
+from beta_tag import GitHubApi, beta_name, reserve
+
 SEMVER = re.compile(r"^(?:win-)?v?(\d+)\.(\d+)(?:\.(\d+))?$")
 BETA_TAG = re.compile(r"^v(?P<core>\d+\.\d+\.\d+)-beta(?P<serial>\d{3})$")
 
@@ -28,9 +30,14 @@ def change_kind(event, messages):
         if f"release:{kind}" in labels:
             return kind
     text = event.get("pull_request", {}).get("title", "") + "\n" + messages
+    # A squash merge lists the branch commits as "* feat(...): …" lines, and Claude's PR titles read
+    # "Claude : Feature: …" (or "Claude : Fix: …"): both count like a plain Conventional Commit line.
+    text = re.sub(r"(?m)^[ \t]*[*-][ \t]+", "", text)
     if re.search(r"(?m)^(?:\w+)(?:\([^\n]*\))?!:|^BREAKING CHANGE:", text):
         return "major"
-    return "minor" if re.search(r"(?mi)^feat(?:\([^\n]*\))?:", text) else "patch"
+    if re.search(r"(?mi)^feat(?:\([^\n]*\))?:|^Claude\s*:\s*Feature\s*:", text):
+        return "minor"
+    return "patch"
 
 
 def android_code(base, beta_build=None):
@@ -47,7 +54,7 @@ def android_code(base, beta_build=None):
 
 
 def next_beta_serial(tags, core):
-    """Reserve the next short beta in a serialized CI run, per x.y.z version.
+    """The next short beta of x.y.z from a list of tag names (local dry runs; CI reserves it with beta_tag.py).
 
     Historical PR/run tags stay valid but do not consume three-digit serials.
     The GitHub Actions beta concurrency group serializes planning through
@@ -67,7 +74,8 @@ def next_beta_serial(tags, core):
     return serial
 
 
-def plan(event, tags, messages, floor, run_number, already_released=None):
+def target_version(event, tags, messages, floor, already_released=None):
+    """The stable x.y.z this build releases (a PR's beta is a test build of it)."""
     published = [parse_stable(t) for t in tags]
     base = max([v for v in published if v] or [(2, 11, 0)])
     target = max(bump(base, change_kind(event, messages)), parse_stable(floor))
@@ -75,13 +83,24 @@ def plan(event, tags, messages, floor, run_number, already_released=None):
         target = parse_stable(already_released)
         if target is None:
             raise ValueError("Published tag is not a stable version")
+    return target
+
+
+def plan(event, tags, messages, floor, run_number, already_released=None, beta_number=None):
+    """PR builds are <x.y.z>-beta<NNN> (BT1 A); NNN is reserved as a tag by beta_tag.py (BT2).
+
+    Android's hidden versionCode uses the beta number as its serial (since 2.17.0), so a re-run of the
+    same commit keeps its code and a later commit's beta always has a higher one; stable uses 9999."""
+    target = target_version(event, tags, messages, floor, already_released)
     stable = ".".join(map(str, target))
-    pr = event.get("pull_request")
-    beta = pr is not None
-    serial = next_beta_serial(tags, stable) if beta else None
-    name = f"{stable}-beta{serial:03d}" if beta else stable
+    beta = event.get("pull_request") is not None
+    if beta and beta_number is None:
+        beta_number = next_beta_serial(tags, stable)  # local dry runs; CI reserves the tag (tools/beta_tag.py)
+    serial = int(beta_number) if beta else None
+    name = beta_name(stable, serial) if beta else stable
     return {"base": stable, "version": name, "tag": f"v{name}", "channel": "beta" if beta else "stable",
-            "code": android_code(target, serial), "zip": f"Remindly_{name}.zip"}
+            "code": android_code(target, serial), "zip": f"Remindly_{name}.zip",
+            "kind": change_kind(event, messages), "beta": f"{serial:03d}" if beta else ""}
 
 
 def expected_entries(version):
@@ -130,6 +149,7 @@ def main():
     v.add_argument("--run", type=int, required=True)
     v.add_argument("--output", default="release-plan.json")
     v.add_argument("--already-released")
+    v.add_argument("--beta-number", type=int, help="Use this beta number instead of reserving one (local dry runs)")
     q = sub.add_parser("package")
     for key in ("version", "android", "portable", "installer", "out"):
         q.add_argument(f"--{key}", required=True)
@@ -143,7 +163,20 @@ def main():
             latest = max(stable_tags)[1] if stable_tags else None
             args = ["git", "log", f"{latest}..HEAD", "--format=%B"] if latest else ["git", "log", "-1", "--format=%B"]
             messages = subprocess.check_output(args, text=True)
-        result = plan(json.loads(Path(a.event).read_text()), tags, messages, Path("VERSION").read_text().strip(), a.run, a.already_released)
+        event = json.loads(Path(a.event).read_text())
+        floor = Path("VERSION").read_text().strip()
+        number = None
+        if event.get("pull_request"):
+            if a.beta_number is not None:
+                number = a.beta_number
+            else:
+                core = ".".join(map(str, target_version(event, tags, messages, floor)))
+                head = event["pull_request"]["head"]["sha"]  # never the synthetic merge commit
+                token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+                reserved = reserve(GitHubApi(os.environ["GITHUB_REPOSITORY"], token), core, "v", head)
+                print(f"Beta number {reserved['number']:03d} {'reused' if reserved['reused'] else 'reserved'}: {reserved['tag']} -> {head}")
+                number = reserved["number"]
+        result = plan(event, tags, messages, floor, a.run, a.already_released, number)
         Path(a.output).write_text(json.dumps(result, indent=2) + "\n")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:
