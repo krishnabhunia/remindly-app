@@ -9,17 +9,15 @@ using Remindly.Core;
 
 namespace Remindly.App.Views;
 
-/// <summary>Tasks and Learn; list membership is independent of the chosen desktop design.</summary>
+/// <summary>Tasks and Learn; navigation, membership and the desktop design are independent.</summary>
 public sealed partial class ItemsView : DockPanel, IPage
 {
     public const string AllView = "ALL";
     public sealed record QuickView(string Code, string Label, string Dot);
     public static readonly QuickView[] QuickViews =
     {
-        new("TODAY", "Today", "#9B8CFF"),
-        new("OVERDUE", "Overdue", "#F87171"),
-        new("UPCOMING", "Next 7 days", "#60A5FA"),
-        new("REPEATING", "Repeating", "#34D399"),
+        new("TODAY", "Today", "#9B8CFF"), new("OVERDUE", "Overdue", "#F87171"),
+        new("UPCOMING", "Next 7 days", "#60A5FA"), new("REPEATING", "Repeating", "#34D399"),
         new("PERSONAL", "Personal", "#A0A6B3"),
     };
     public static string CommandView { get; set; } = AllView;
@@ -33,19 +31,14 @@ public sealed partial class ItemsView : DockPanel, IPage
             "TODAY" => i.DueAt is long d && d < tomorrow,
             "OVERDUE" => i.DueAt is long d && d < today,
             "UPCOMING" => i.DueAt is long d && d >= tomorrow && d < Clock.FromLocal(Clock.LocalDate(now).AddDays(8)),
-            "REPEATING" => i.RepeatMode != "OFF",
-            "PERSONAL" => i.Personal,
-            _ => true,
+            "REPEATING" => i.RepeatMode != "OFF", "PERSONAL" => i.Personal, _ => true,
         };
     }
 
     private readonly Tab _tab;
     private readonly string _design = Theme.Design;
-    private readonly StackPanel _list = new();
     private readonly TextBlock _title;
     private readonly TextBlock _count = Ui.Sub("");
-    private readonly TextBox? _quick;
-    private readonly TextBox _search;
     private readonly ContentControl _body = new() { Focusable = false };
     private readonly Border _detail = new();
     private bool _doneView;
@@ -55,59 +48,43 @@ public sealed partial class ItemsView : DockPanel, IPage
     {
         _tab = tab;
         LastChildFill = true;
-        var noun = tab == Tab.LEARN ? "something to learn" : "a task";
-        _search = Ui.Input(placeholder: "Search", width: 200);
-        _search.TextChanged += (_, _) => Refresh();
         _title = Ui.H1(TabNames.Title(tab));
         if (_design == Designs.Hub) _title.FontSize = 28;
-        var right = Ui.Row(
-            Ui.Chip("Active", "view" + tab + _design, true, () => { _doneView = false; Refresh(); }),
-            Ui.Chip("Done", "view" + tab + _design, false, () => { _doneView = true; Refresh(); }),
-            new Border { Width = 12 }, _search, new Border { Width = 8 },
-            Ui.Primary("+ New", () => ItemEditor.New(_tab, listId: TaskListForNew), "New with all details (Ctrl+N)"));
-        var bar = Ui.Columns("*,Auto", Ui.Stack(_title, _count), right);
-        bar.Margin = new Thickness(0, 0, 0, 10);
-        SetDock(bar, Dock.Top);
-        Children.Add(bar);
-        if (_design != Designs.Command)
-        {
-            _quick = Ui.Input(placeholder: $"Add {noun} — type and press Enter", onEnter: QuickAdd);
-            if (_design == Designs.Hub) { _quick.Height = 44; _quick.FontSize = 15; }
-            var add = Ui.Columns("*,Auto", _quick, Ui.Btn("Add", QuickAdd));
-            ((Button)add.Children[1]).Margin = new Thickness(8, 0, 0, 0);
-            add.Margin = new Thickness(0, 0, 0, 8);
-            SetDock(add, Dock.Top);
-            Children.Add(add);
-        }
-        AddTaskNavigation();
+        BuildWorkspaceChrome();
         Children.Add(_body);
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                ItemEditor.New(_tab, listId: TaskListForNew);
-                e.Handled = true;
-            }
-        };
+        _ready = true;
     }
 
     private void QuickAdd()
     {
-        if (_quick == null) return;
-        var text = _quick.Text.Trim();
-        if (AddQuick(_tab, text, TaskListForNew)) _quick.Clear();
+        ValidateQuickAdd();
+        if (!_addButton.IsEnabled) return;
+        var destination = TaskListForNew ?? (_destination.SelectedItem as DestinationChoice)?.Id;
+        if (AddQuick(_tab, _quick.Text, destination)) _quick.Clear();
     }
 
+    /// <summary>Command-bar callers use the same current-list destination rules as the page.</summary>
     public static bool AddQuick(Tab tab, string text, long? taskListId = null)
     {
         text = text.Trim();
         if (text.Length == 0) return false;
         var state = AppState.Current;
+        if (tab == Tab.TASKS && taskListId == null)
+        {
+            if (App.Current.Main.Page.Content is ItemsView view && view._tab == Tab.TASKS && view.CurrentLocation.IsInsideList)
+                taskListId = view.TaskListForNew;
+            else
+            {
+                // No invisible fallback to Unsorted. The editor requires a deliberate list choice.
+                ItemEditor.New(tab, title: text);
+                return false; // retain the command text if the editor is cancelled
+            }
+        }
         if (ItemRules.DupActiveMatch(state.Data.Items, tab, text) && !Ui.Confirm($"\"{text}\" is already on your {TabNames.Title(tab)} list. Add it again?")) return false;
         var item = state.NewItem(tab, text);
-        if (tab == Tab.TASKS && taskListId is long id)
+        if (tab == Tab.TASKS && taskListId is > 0)
         {
-            var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == id);
+            var list = TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == taskListId);
             if (list == null) { App.Current.Main.Snack("The selected task list is no longer available."); return false; }
             item = item with { ListId = list.Id, Group = list.Name };
         }
@@ -118,229 +95,198 @@ public sealed partial class ItemsView : DockPanel, IPage
 
     public void Refresh()
     {
+        if (!_ready || _restoring) return;
+        ReconcileNavigation();
         var state = AppState.Current;
         long now = state.Now;
-        var q = _search.Text.Trim();
-        if (TryShowTaskLists(now, q)) return;
+        var query = _search.Text.Trim();
         var live = ScopeToTaskList(state.LiveItems(_tab)).ToList();
-        var view = _design == Designs.Command && _tab == Tab.TASKS ? CommandView : AllView;
-        var shown = live.Where(i => i.Done == _doneView)
-            .Where(i => q.Length == 0 || i.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || i.Notes.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || (i.Topic ?? "").Contains(q, StringComparison.OrdinalIgnoreCase))
-            .Where(i => _doneView || Matches(view, i, now)).ToList();
-        int open = live.Count(i => !i.Done);
-        int today = ItemRules.PendingTodayCount(live, _tab, now);
+        var view = HasCommandFilter ? CurrentLocation.QuickView : AllView;
+        var scoped = live.Where(i => i.Done || Matches(view, i, now)).ToList();
+        UpdateWorkspaceChrome(scoped);
+        if (TryShowTaskLists(now, query)) return;
+        var shown = scoped.Where(i => i.Done == _doneView)
+            .Where(i => query.Length == 0 || i.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                i.Notes.Contains(query, StringComparison.OrdinalIgnoreCase) || (i.Topic ?? "").Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                (_tab == Tab.TASKS && !CurrentLocation.IsInsideList && (i.Group ?? "").Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
         _title.Text = TaskScopeTitle(view == AllView ? TabNames.Title(_tab) : QuickViews.First(v => v.Code == view).Label);
-        _count.Text = $"{open} active · {today} due today or overdue · {live.Count(i => i.Done)} done";
-        if (shown.Count == 0 && !(_design == Designs.Board && !_doneView))
+        _title.ToolTip = _title.Text;
+        _count.Text = $"{scoped.Count(i => !i.Done)} active · {ItemRules.PendingTodayCount(scoped, _tab, now)} due today or overdue · {scoped.Count(i => i.Done)} done" +
+            (query.Length > 0 ? $" · {shown.Count} matches" : "");
+        if (shown.Count == 0)
         {
-            _body.Content = Ui.Scroll(Ui.EmptyState(_doneView ? "Nothing done yet" : "All clear",
-                _doneView ? "Ticked items land here. Recurring ones come back on their next day." : "Type above and press Enter, or use + New for dates, repeats and priority."));
+            var empty = Ui.Stack(Ui.EmptyState(TaskWorkspaceRules.EmptyTitle(query.Length > 0, _doneView), query.Length > 0
+                ? "Try another search or clear it. Active and Done are searched separately."
+                : _doneView ? "Completed tasks will appear here." : "Add a task to this view, or check Done."));
+            if (query.Length > 0) empty.Children.Add(WorkspaceUi.Action("empty-clear-search", "Clear search", "Clear search", () => _search.Clear()));
+            else if (!_doneView && scoped.Any(i => i.Done))
+                empty.Children.Add(WorkspaceUi.Action("empty-show-done", "Show completed tasks", "Show Done", () => SetDoneView(true)));
+            ReplaceBody(Ui.Scroll(empty));
             return;
         }
-        var old = FindScroll(_body.Content as DependencyObject);
-        double v = old?.VerticalOffset ?? 0, h = old?.HorizontalOffset ?? 0;
-        _body.Content = _design switch
+        ReplaceBody(_design switch
         {
             Designs.Board when !_doneView => BoardBody(shown, now),
             Designs.Command => TableBody(shown, now),
             Designs.Hub => TileBody(shown, now),
-            Designs.Fluent => FluentBody(shown, now),
+            Designs.Fluent when _tab != Tab.TASKS => FluentBody(shown, now),
             _ => ListBody(shown, now),
-        };
-        if (v > 0 || h > 0)
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
-            {
-                if (FindScroll(_body.Content as DependencyObject) is ScrollViewer sv) { sv.ScrollToVerticalOffset(v); sv.ScrollToHorizontalOffset(h); }
-            });
+        });
     }
 
     private static ScrollViewer? FindScroll(DependencyObject? d)
     {
         if (d == null) return null;
-        if (d is ScrollViewer sv) return sv;
+        if (d is ScrollViewer scroll) return scroll;
         foreach (var child in LogicalTreeHelper.GetChildren(d).OfType<DependencyObject>())
-            if (FindScroll(child) is ScrollViewer found) return found;
+            if (FindScroll(child) is { } found) return found;
         return null;
     }
 
     private ScrollViewer ListBody(List<Item> shown, long now)
     {
-        _list.Children.Clear();
-        foreach (var g in ItemRules.GroupByDay(shown, _doneView, now))
+        var list = new StackPanel();
+        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
         {
-            var header = Ui.Header($"{g.Label} · {g.Items.Count}");
-            if (g.Key == "overdue") header.Foreground = Ui.Res("DangerBrush");
-            _list.Children.Add(header);
-            foreach (var i in g.Items) _list.Children.Add(ItemCard(i, now));
+            var header = Ui.Header($"{group.Label} · {group.Items.Count}");
+            if (group.Key == "overdue") header.Foreground = Ui.Res("DangerBrush");
+            list.Children.Add(header);
+            foreach (var item in group.Items) list.Children.Add(ItemCard(item, now, taskBadge: TaskBadge(item)));
         }
-        (_list.Parent as ScrollViewer)?.SetValue(ContentControl.ContentProperty, null);
-        return Ui.Scroll(_list);
+        return Ui.Scroll(list);
     }
 
+    // Learn retains its existing Fluent details pane. Tasks uses the approved full-width rows.
     private UIElement FluentBody(List<Item> shown, long now)
     {
         if (_selected is long sid && !shown.Any(i => i.Id == sid)) _selected = null;
         _selected ??= shown.FirstOrDefault(i => !i.Done)?.Id ?? shown.FirstOrDefault()?.Id;
         var list = new StackPanel();
-        foreach (var g in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
         {
-            var header = Ui.Header($"{g.Label} · {g.Items.Count}");
-            header.Foreground = g.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush");
+            var header = Ui.Header($"{group.Label} · {group.Items.Count}");
+            header.Foreground = group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush");
             list.Children.Add(header);
-            foreach (var i in g.Items)
+            foreach (var item in group.Items)
             {
-                var card = ItemCard(i, now);
-                var id = i.Id;
-                if (i.Id == _selected)
-                {
-                    card.Background = Ui.Res("AccentSoftBrush");
-                    card.BorderBrush = Ui.Res("AccentBrush");
-                }
-                card.Cursor = Cursors.Hand;
+                var card = ItemCard(item, now);
+                if (item.Id == _selected) { card.Background = Ui.Res("AccentSoftBrush"); card.BorderBrush = Ui.Res("AccentBrush"); }
                 card.MouseLeftButtonUp += (_, e) =>
                 {
                     if (e.OriginalSource is DependencyObject d && IsInside<ButtonBase>(d)) return;
-                    _selected = id;
-                    Refresh();
+                    _selected = item.Id; Refresh();
                 };
                 list.Children.Add(card);
             }
         }
-        var item = _selected is long s ? shown.FirstOrDefault(i => i.Id == s) : null;
-        _detail.Child = DetailPane(item, now);
-        _detail.Width = 330;
-        _detail.Margin = new Thickness(16, 0, 0, 0);
+        _detail.Child = DetailPane(_selected is long id ? shown.FirstOrDefault(i => i.Id == id) : null, now);
+        _detail.Width = 330; _detail.Margin = new Thickness(16, 0, 0, 0);
         (_detail.Parent as Panel)?.Children.Remove(_detail);
         var grid = Ui.Columns("*,Auto", Ui.Scroll(list), _detail);
-        void Fit() => _detail.Visibility = grid.ActualWidth > 0 && grid.ActualWidth < 760 ? Visibility.Collapsed : Visibility.Visible;
-        grid.SizeChanged += (_, _) => Fit();
+        grid.SizeChanged += (_, _) => _detail.Visibility = grid.ActualWidth > 0 && grid.ActualWidth < 760 ? Visibility.Collapsed : Visibility.Visible;
         return grid;
     }
 
     private static bool IsInside<T>(DependencyObject d) where T : DependencyObject
     {
-        for (var x = d; x != null; x = x is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(x) ?? LogicalTreeHelper.GetParent(x) : LogicalTreeHelper.GetParent(x))
+        for (var x = d; x != null; x = x is Visual or System.Windows.Media.Media3D.Visual3D
+            ? VisualTreeHelper.GetParent(x) ?? LogicalTreeHelper.GetParent(x) : LogicalTreeHelper.GetParent(x))
             if (x is T || x is CheckBox) return true;
         return false;
     }
 
-    private UIElement DetailPane(Item? i, long now)
+    private UIElement DetailPane(Item? item, long now)
     {
-        var p = new StackPanel();
+        var body = new StackPanel();
         var box = new Border
         {
             Background = Ui.Res("CardBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10), Padding = new Thickness(18, 16, 18, 16),
-            VerticalAlignment = VerticalAlignment.Top, Child = p,
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(18, 16, 18, 16), VerticalAlignment = VerticalAlignment.Top, Child = body,
         };
-        if (i == null)
-        {
-            p.Children.Add(Ui.Text("Details", 16, FontWeights.SemiBold));
-            p.Children.Add(Ui.Sub("Select a " + (_tab == Tab.LEARN ? "Learn item" : "task") + " to see it here."));
-            return box;
-        }
+        if (item == null) { body.Children.Add(Ui.Sub("Select an item to see its details.")); return box; }
         var state = AppState.Current;
-        p.Children.Add(Ui.Columns("*,Auto", Ui.Text("Details", 12.5, FontWeights.SemiBold, Ui.Res("InkSubtleBrush")),
-            Ui.Sub("Edited " + Clock.FormatDayTime(Math.Max(i.UpdatedAt, i.CreatedAt)))));
-        var title = Ui.Text(i.Title, 18, FontWeights.SemiBold);
-        title.Margin = new Thickness(0, 6, 0, 8);
-        p.Children.Add(title);
-        var tags = Tags(i, now);
-        if (tags.Children.Count > 0) { tags.Margin = new Thickness(0, 0, 0, 8); p.Children.Add(tags); }
+        body.Children.Add(Ui.Columns("*,Auto", Ui.Sub("Details"), Ui.Sub("Edited " + Clock.FormatDayTime(Math.Max(item.UpdatedAt, item.CreatedAt)))));
+        body.Children.Add(TitleButton(item, 18));
+        body.Children.Add(Tags(item, now));
         void Field(string label, string? value)
         {
             if (string.IsNullOrWhiteSpace(value)) return;
-            var l = Ui.Text(label, 12, FontWeights.SemiBold, Ui.Res("InkSubtleBrush"));
-            l.Margin = new Thickness(0, 8, 0, 2);
-            p.Children.Add(l);
-            p.Children.Add(Ui.Text(value!, 14));
+            var caption = Ui.Text(label, 12, FontWeights.SemiBold, Ui.Res("InkSubtleBrush"));
+            caption.Margin = new Thickness(0, 8, 0, 2); body.Children.Add(caption); body.Children.Add(Ui.Text(value!, 14));
         }
-        if (i.Tab == Tab.TASKS)
-            Field("List", TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == TaskLists.ListIdOf(i, state.Settings.TaskLists))?.Name ?? "Unsorted");
-        var due = Ui.DueText(i.DueAt, i.DueHasTime, now);
-        Field(i.Done ? (i.RepeatMode != "OFF" ? "Returns" : "Was due") : "Due", due.Length > 0 ? due : "No date");
-        Field("Repeat", Recurrence.Label(i));
-        Field("Priority", i.Priority is Priority pr ? PriorityNames.Label(pr) : null);
-        Field("Alert", i.DueAt == null ? null : i.AlertType == "OFF" ? "Muted" : i.AlertType.Contains('R') || i.AlertType.Contains('A') ? "Ring" : "Notify");
-        if (i.Tab == Tab.LEARN)
+        var due = Ui.DueText(item.DueAt, item.DueHasTime, now);
+        Field(item.Done ? (item.RepeatMode != "OFF" ? "Returns" : "Was due") : "Due", due.Length > 0 ? due : "No date");
+        Field("Repeat", Recurrence.Label(item));
+        Field("Priority", item.Priority is Priority priority ? PriorityNames.Label(priority) : null);
+        Field("Alert", item.DueAt == null ? null : item.AlertType == "OFF" ? "Muted" : item.AlertType.Contains('R') || item.AlertType.Contains('A') ? "Ring" : "Notify");
+        if (item.Tab == Tab.LEARN)
         {
-            Field("Platform", i.Platform);
-            Field("Topic", i.Topic);
-            if (i.Progress > 0) Field("Progress", $"{i.Progress}% · {i.HoursSpent:0.#} h spent");
+            Field("Platform", item.Platform); Field("Topic", item.Topic);
+            if (item.Progress > 0) Field("Progress", $"{item.Progress}% · {item.HoursSpent:0.#} h spent");
         }
-        Field("Notes", i.Notes);
-        if (i.Done && i.DoneAt is long da) Field("Done", Clock.FormatDayTime(da));
+        Field("Notes", item.Notes);
+        if (item.Done && item.DoneAt is long doneAt) Field("Done", Clock.FormatDayTime(doneAt));
         var actions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
-        actions.Children.Add(Ui.Primary("Edit…", () => ItemEditor.Edit(i)));
-        actions.Children.Add(Ui.Btn(i.Done ? "Back to Active" : "Done", () => Toggle(i, !i.Done)));
-        if (!i.Done && i.DueAt != null) actions.Children.Add(Ui.Btn($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(i)));
-        if (!string.IsNullOrWhiteSpace(i.Url)) actions.Children.Add(Ui.Btn("Open link", () => InstallInfo.OpenUrl(i.Url!)));
-        foreach (var b in actions.Children.OfType<Button>()) b.Margin = new Thickness(0, 0, 6, 6);
-        p.Children.Add(actions);
-        var del = Ui.Btn("Delete", () => Delete(i), "Moves it to the Bin for 30 days", "Danger");
-        del.HorizontalAlignment = HorizontalAlignment.Left;
-        p.Children.Add(del);
+        actions.Children.Add(Ui.Primary("Edit…", () => EditLatest(item)));
+        actions.Children.Add(Ui.Btn(item.Done ? "Back to Active" : "Done", () => Toggle(item, !item.Done)));
+        if (!item.Done && item.DueAt != null) actions.Children.Add(Ui.Btn($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(item)));
+        if (!string.IsNullOrWhiteSpace(item.Url)) actions.Children.Add(Ui.Btn("Open link", () => InstallInfo.OpenUrl(item.Url!)));
+        foreach (var button in actions.Children.OfType<Button>()) button.Margin = new Thickness(0, 0, 6, 6);
+        body.Children.Add(actions);
+        body.Children.Add(Ui.Btn("Delete", () => Delete(item), "Moves it to the Bin for 30 days", "Danger"));
         return box;
     }
 
     private UIElement BoardBody(List<Item> shown, long now)
     {
         var state = AppState.Current;
-        var cols = DesktopViews.BoardColumns(shown, now);
         var grid = new UniformGrid4();
-        foreach (var c in cols)
+        foreach (var column in DesktopViews.BoardColumns(shown, now))
         {
-            bool overdue = c.Key == DesktopViews.Overdue;
+            bool overdue = column.Key == DesktopViews.Overdue;
             var stack = new StackPanel();
-            var day = c.Key switch
+            var day = column.Key switch
             {
                 DesktopViews.Today => Clock.ToLocal(now).ToString("ddd d", CultureInfo.InvariantCulture) + " · ",
-                DesktopViews.Tomorrow => Clock.ToLocal(now).AddDays(1).ToString("ddd d", CultureInfo.InvariantCulture) + " · ",
-                _ => "",
+                DesktopViews.Tomorrow => Clock.ToLocal(now).AddDays(1).ToString("ddd d", CultureInfo.InvariantCulture) + " · ", _ => "",
             };
-            stack.Children.Add(Ui.Columns("*,Auto",
-                Ui.Text(c.Label, 15, FontWeights.ExtraBold, overdue ? Ui.Res("DangerBrush") : Ui.Res("InkBrush"), wrap: false),
-                Ui.Text(day + c.Items.Count, 12.5, FontWeights.SemiBold, Ui.Res("InkSubtleBrush"), wrap: false)));
+            stack.Children.Add(Ui.Columns("*,Auto", Ui.Text(column.Label, 15, FontWeights.ExtraBold,
+                overdue ? Ui.Res("DangerBrush") : Ui.Res("InkBrush"), wrap: false), Ui.Sub(day + column.Items.Count)));
             ((Grid)stack.Children[0]).Margin = new Thickness(4, 2, 4, 10);
-            foreach (var i in c.Items) stack.Children.Add(BoardCard(i, now));
-            if (c.Items.Count == 0) { var e = Ui.Sub("Nothing here"); e.Margin = new Thickness(4, 0, 0, 10); stack.Children.Add(e); }
+            foreach (var item in column.Items) stack.Children.Add(BoardCard(item, now));
+            if (column.Items.Count == 0) stack.Children.Add(Ui.Sub("Nothing here"));
             Button footer;
             if (overdue)
             {
-                var late = c.Items;
                 footer = Ui.Btn("Move all to today", () =>
                 {
-                    var snap = state.TakeSnapshot();
-                    state.UpsertMany(late.Select(x => DesktopViews.MoveToToday(x, state.Now, state.Settings.DefaultDueHour)));
-                    App.Current.Main.Snack($"{late.Count} moved to today", () => state.Restore(snap));
+                    var snapshot = state.TakeSnapshot();
+                    state.UpsertMany(column.Items.Select(i => DesktopViews.MoveToToday(i, state.Now, state.Settings.DefaultDueHour)));
+                    App.Current.Main.Snack($"{column.Items.Count} moved to today", () => state.Restore(snapshot));
                 });
-                footer.IsEnabled = late.Count > 0;
+                footer.IsEnabled = column.Items.Count > 0;
             }
             else
             {
-                long? due = c.Key switch
+                long? due = column.Key switch
                 {
                     DesktopViews.Today => NextLocalHour(now),
-                    DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddHours(state.Settings.DefaultDueHour)),
-                    _ => null,
+                    DesktopViews.Tomorrow => Clock.FromLocal(Clock.LocalDate(now).AddDays(1).AddHours(state.Settings.DefaultDueHour)), _ => null,
                 };
-                footer = Ui.Btn("+ Add " + (c.Key == DesktopViews.Later ? "for later" : "to " + c.Label.ToLowerInvariant()), () => ItemEditor.New(_tab, listId: TaskListForNew, dueAt: due));
+                footer = Ui.Btn("+ Add " + (column.Key == DesktopViews.Later ? "for later" : "to " + column.Label.ToLowerInvariant()), () => CreateTask(due));
             }
-            footer.HorizontalAlignment = HorizontalAlignment.Stretch;
-            footer.Background = Brushes.Transparent;
-            footer.Margin = new Thickness(0, 4, 0, 0);
+            footer.HorizontalAlignment = HorizontalAlignment.Stretch; footer.Background = Brushes.Transparent; footer.Margin = new Thickness(0, 4, 0, 0);
             stack.Children.Add(footer);
             grid.Children.Add(new Border
             {
-                Background = overdue ? Ui.Res("DangerSoftBrush") : c.Key == DesktopViews.Today ? Ui.Res("AccentSoftBrush") : Ui.Res("NavSelectedBrush"),
+                Background = overdue ? Ui.Res("DangerSoftBrush") : column.Key == DesktopViews.Today ? Ui.Res("AccentSoftBrush") : Ui.Res("NavSelectedBrush"),
                 CornerRadius = new CornerRadius(14), Padding = new Thickness(10), Margin = new Thickness(0, 0, 14, 0),
                 VerticalAlignment = VerticalAlignment.Top, Child = stack,
             });
         }
-        var sv = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
-        sv.SizeChanged += (_, _) => grid.Width = Math.Max(4 * 250, sv.ViewportWidth > 0 ? sv.ViewportWidth : sv.ActualWidth);
-        return sv;
+        var scroll = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = grid };
+        scroll.SizeChanged += (_, _) => grid.Width = Math.Max(4 * 250, scroll.ViewportWidth > 0 ? scroll.ViewportWidth : scroll.ActualWidth);
+        return scroll;
     }
 
     private static long NextLocalHour(long now)
@@ -354,99 +300,83 @@ public sealed partial class ItemsView : DockPanel, IPage
         public UniformGrid4() { Columns = 4; Rows = 1; VerticalAlignment = VerticalAlignment.Top; }
     }
 
-    private Border BoardCard(Item i, long now)
+    private Border BoardCard(Item item, long now)
     {
-        var state = AppState.Current;
-        var check = Ui.Check(i.Done, on => Toggle(i, on), "Done");
-        var title = Ui.Text(i.Title, 14.5, FontWeights.Bold);
-        var chips = new WrapPanel { Margin = new Thickness(30, 6, 0, 0) };
-        bool late = !i.Done && i.DueAt is long d && d < now;
-        if (i.DueAt is long due)
-            chips.Children.Add(Chip((i.DueHasTime ? Clock.FormatTime(due) : Clock.FormatDay(due)), late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"), late ? Ui.Res("DangerSoftBrush") : Ui.Res("NavSelectedBrush")));
-        if (Recurrence.Label(i) is string rep) chips.Children.Add(Chip("↻ " + rep, Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
-        if (i.Priority is Priority pr && pr != Priority.MEDIUM) chips.Children.Add(Chip("● " + PriorityNames.Label(pr), PriorityInk(pr), Ui.Res("NavSelectedBrush")));
-        if (i.Personal) chips.Children.Add(Chip("Personal", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
-        if (i.Tab == Tab.LEARN && i.Progress > 0) chips.Children.Add(Chip($"{i.Progress}%", Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
-        var body = Ui.Stack(Ui.Columns("Auto,*", check, title));
+        var body = Ui.Stack(Ui.Columns("Auto,*", CompletionCheck(item), TitleButton(item, 14.5)));
+        if (TaskBadge(item) is { } badge) body.Children.Add(badge);
+        var chips = new WrapPanel { Margin = new Thickness(25, 6, 0, 0) };
+        bool late = !item.Done && item.DueAt is long d && d < now;
+        if (item.DueAt is long due) chips.Children.Add(Chip(item.DueHasTime ? Clock.FormatTime(due) : Clock.FormatDay(due),
+            late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"), late ? Ui.Res("DangerSoftBrush") : Ui.Res("NavSelectedBrush")));
+        foreach (var tag in TagList(item, now)) chips.Children.Add(tag);
+        if (item.Tab == Tab.LEARN && item.Progress > 0) chips.Children.Add(Chip($"{item.Progress}%", Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
         if (chips.Children.Count > 0) body.Children.Add(chips);
-        if (!string.IsNullOrWhiteSpace(i.Notes))
+        if (!string.IsNullOrWhiteSpace(item.Notes))
         {
-            var n = Ui.Sub(i.Notes.Trim().Replace('\n', ' '));
-            n.Margin = new Thickness(30, 6, 0, 0);
-            n.MaxHeight = 36;
-            body.Children.Add(n);
+            var note = Ui.Sub(item.Notes.Trim().Replace('\n', ' ')); note.Margin = new Thickness(25, 6, 0, 0); note.MaxHeight = 36; body.Children.Add(note);
         }
-        var card = Ui.Card(body, () => ItemEditor.Edit(i));
-        card.CornerRadius = new CornerRadius(12);
-        card.Padding = new Thickness(12, 10, 12, 10);
-        card.Margin = new Thickness(0, 0, 0, 8);
-        card.ContextMenu = ItemMenu(i);
-        card.ToolTip = "Double-click to edit · right-click for more";
+        body.Children.Add(ItemActions(item));
+        var card = Ui.Card(body);
+        card.CornerRadius = new CornerRadius(12); card.Padding = new Thickness(12, 10, 12, 10); card.Margin = new Thickness(0, 0, 0, 8);
+        card.ContextMenu = ItemMenu(item); card.ToolTip = "Click the name to edit · checkbox changes completion";
         return card;
     }
 
-    private static Border Chip(string text, Brush fg, Brush bg)
+    private static Border Chip(string text, Brush foreground, Brush background)
     {
-        var t = Ui.Tag(text, fg, bg);
-        t.CornerRadius = new CornerRadius(8);
-        t.Padding = new Thickness(7, 2, 7, 2);
-        t.Margin = new Thickness(0, 0, 6, 4);
-        return t;
+        var tag = Ui.Tag(text, foreground, background); tag.CornerRadius = new CornerRadius(8);
+        tag.Padding = new Thickness(7, 2, 7, 2); tag.Margin = new Thickness(0, 0, 6, 4); return tag;
     }
-    private static Brush PriorityInk(Priority p) => p switch
+    private static Brush PriorityInk(Priority priority) => priority switch
     {
         Priority.URGENT => Ui.Res("DangerBrush"), Priority.HIGH => Ui.Res("AmberBrush"), _ => Ui.Res("InkSubtleBrush"),
     };
 
-    private const string TableCols = "36,*,180,150,100";
+    private const string TableCols = "36,*,160,130,100,Auto";
     private UIElement TableBody(List<Item> shown, long now)
     {
         var rows = new StackPanel();
-        var head = Ui.Columns(TableCols, new Border(), Caption("Task"), Caption("Due"), Caption("Repeat"), Caption("Priority"));
-        head.Margin = new Thickness(12, 0, 12, 0);
-        head.Height = 34;
+        var head = Ui.Columns(TableCols, new Border(), Caption("Task"), Caption("Due"), Caption("Repeat"), Caption("Priority"), new Border { Width = 72 });
+        head.Margin = new Thickness(12, 0, 12, 0); head.Height = 34;
         rows.Children.Add(new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = head });
-        foreach (var g in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
         {
-            var label = Ui.Text($"{g.Label} · {g.Items.Count}", 12.5, FontWeights.SemiBold, g.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush"));
-            label.Margin = new Thickness(48, 12, 0, 6);
-            rows.Children.Add(label);
-            foreach (var i in g.Items) rows.Children.Add(TableRow(i, now));
+            var label = Ui.Text($"{group.Label} · {group.Items.Count}", 12.5, FontWeights.SemiBold, group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"));
+            label.Margin = new Thickness(48, 12, 0, 6); rows.Children.Add(label);
+            foreach (var item in group.Items) rows.Children.Add(TableRow(item, now));
         }
         var box = new Border
         {
             Background = Ui.Res("NavBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 0, 0, 6), Child = rows, VerticalAlignment = VerticalAlignment.Top,
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(0, 0, 0, 6), Child = rows, VerticalAlignment = VerticalAlignment.Top, MinWidth = 760,
         };
         return new ScrollViewer { Content = box, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 6, 0) };
     }
     private static TextBlock Caption(string text) => Ui.Text(text.ToUpperInvariant(), 11.5, FontWeights.SemiBold, Ui.Res("InkHintBrush"), wrap: false);
 
-    private Border TableRow(Item i, long now)
+    private Border TableRow(Item item, long now)
     {
-        var check = Ui.Check(i.Done, on => Toggle(i, on), "Done");
-        check.LayoutTransform = new ScaleTransform(1.1, 1.1);
-        var title = Ui.Row(Ui.Text(i.Title, 14, FontWeights.Medium, i.Done ? Ui.Res("InkSubtleBrush") : Ui.Res("InkBrush"), wrap: false));
-        if (i.Done) ((TextBlock)title.Children[0]).TextDecorations = TextDecorations.Strikethrough;
-        if (i.Tab == Tab.LEARN && !string.IsNullOrWhiteSpace(i.Topic)) title.Children.Add(Outline(i.Topic!));
-        if (i.Personal) title.Children.Add(Outline("personal"));
-        if (i.SnoozedUntil is long sn && sn > now) title.Children.Add(Outline("snoozed " + Clock.FormatTime(sn)));
-        bool late = !i.Done && i.DueAt is long d && d < now;
-        var due = Ui.Mono(i.DueAt is long dd ? (i.DueHasTime ? Clock.ToLocal(dd).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture) : Clock.ToLocal(dd).ToString("ddd d MMM", CultureInfo.InvariantCulture)) : "—",
-            12.5, late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"));
-        var rep = Ui.Text(Recurrence.Label(i) ?? "—", 13, color: Ui.Res("InkSubtleBrush"), wrap: false);
-        var pri = Ui.Row(new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(2), Background = i.Priority is Priority p && p != Priority.MEDIUM ? PriorityInk(p) : Ui.Res("BorderBrush"), Margin = new Thickness(0, 0, 6, 0) },
-            Ui.Text(i.Priority is Priority p2 ? PriorityNames.Label(p2) : "—", 13, color: Ui.Res("InkSubtleBrush"), wrap: false));
-        var grid = Ui.Columns(TableCols, check, title, due, rep, pri);
+        var title = Ui.Stack(TitleButton(item));
+        if (TaskBadge(item) is { } badge) title.Children.Add(badge);
+        var tags = new WrapPanel();
+        if (item.Tab == Tab.LEARN && !string.IsNullOrWhiteSpace(item.Topic)) tags.Children.Add(Outline(item.Topic!));
+        if (item.Personal) tags.Children.Add(Outline("personal"));
+        if (item.SnoozedUntil is long snooze && snooze > now) tags.Children.Add(Outline("snoozed " + Clock.FormatTime(snooze)));
+        if (tags.Children.Count > 0) title.Children.Add(tags);
+        bool late = !item.Done && item.DueAt is long d && d < now;
+        var due = Ui.Mono(item.DueAt is long dd ? (item.DueHasTime ? Clock.ToLocal(dd).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)
+            : Clock.ToLocal(dd).ToString("ddd d MMM", CultureInfo.InvariantCulture)) : "—", 12.5, late ? Ui.Res("DangerBrush") : Ui.Res("InkSubtleBrush"));
+        var repeat = Ui.Text(Recurrence.Label(item) ?? "—", 13, color: Ui.Res("InkSubtleBrush"), wrap: false);
+        var priority = Ui.Text(item.Priority is Priority p ? PriorityNames.Label(p) : "—", 13,
+            color: item.Priority is Priority pr ? PriorityInk(pr) : Ui.Res("InkSubtleBrush"), wrap: false);
+        var grid = Ui.Columns(TableCols, CompletionCheck(item), title, due, repeat, priority, ItemActions(item));
         grid.Margin = new Thickness(12, 0, 12, 0);
-        var row = new Border { MinHeight = 40, Background = Brushes.Transparent, BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = grid, ToolTip = i.Notes.Length > 0 ? i.Notes : null };
+        var row = new Border { MinHeight = 48, Background = Brushes.Transparent, BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = grid, ToolTip = item.Notes.Length > 0 ? item.Notes : null };
         row.MouseEnter += (_, _) => row.Background = Ui.Res("HoverBrush");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
-        row.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(i); e.Handled = true; } };
-        row.ContextMenu = ItemMenu(i);
+        row.ContextMenu = ItemMenu(item);
         return row;
     }
-
     private static Border Outline(string text) => new()
     {
         BorderBrush = Ui.Res("InverseSubBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
@@ -457,146 +387,160 @@ public sealed partial class ItemsView : DockPanel, IPage
     private UIElement TileBody(List<Item> shown, long now)
     {
         var stack = new StackPanel();
-        foreach (var g in ItemRules.GroupByDay(shown, _doneView, now))
+        foreach (var group in ItemRules.GroupByDay(shown, _doneView, now))
         {
-            var p = new StackPanel();
-            p.Children.Add(Ui.Text($"{g.Label}", 18, FontWeights.ExtraBold, g.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush")));
-            foreach (var i in g.Items) p.Children.Add(TimelineRow(i, now));
-            var tile = Ui.Tile(p, padding: 20);
-            tile.Margin = new Thickness(0, 0, 0, 14);
-            stack.Children.Add(tile);
+            var body = new StackPanel();
+            body.Children.Add(Ui.Text(group.Label, 18, FontWeights.ExtraBold, group.Key == "overdue" ? Ui.Res("DangerBrush") : Ui.Res("InkBrush")));
+            foreach (var item in group.Items) body.Children.Add(TimelineRow(item, now));
+            var tile = Ui.Tile(body, padding: 20); tile.Margin = new Thickness(0, 0, 0, 14); stack.Children.Add(tile);
         }
         return Ui.Scroll(stack);
     }
 
-    private UIElement TimelineRow(Item i, long now)
+    private UIElement TimelineRow(Item item, long now)
     {
-        var time = Ui.Text(i.DueAt is long d && i.DueHasTime ? Clock.ToLocal(d).ToString("HH:mm", CultureInfo.InvariantCulture) : "—", 15, FontWeights.ExtraBold, wrap: false);
+        var time = Ui.Text(item.DueAt is long d && item.DueHasTime ? Clock.ToLocal(d).ToString("HH:mm", CultureInfo.InvariantCulture) : "—", 15, FontWeights.ExtraBold, wrap: false);
         time.Width = 64;
-        var check = Ui.Check(i.Done, on => Toggle(i, on), "Done");
+        var mid = Ui.Stack(TitleButton(item, 15));
+        if (TaskBadge(item) is { } badge) mid.Children.Add(badge);
         var meta = new List<string>();
-        if (Recurrence.Label(i) is string rep) meta.Add("repeats " + rep.ToLowerInvariant());
-        if (i.Tab == Tab.LEARN && !string.IsNullOrWhiteSpace(i.Platform)) meta.Add(i.Platform!);
-        if (i.Progress > 0) meta.Add($"{i.Progress}%");
-        if (!string.IsNullOrWhiteSpace(i.Notes)) meta.Add(i.Notes.Trim().Replace('\n', ' '));
-        var mid = Ui.Stack(Ui.Text(i.Title, 15, FontWeights.Bold));
+        if (Recurrence.Label(item) is string repeat) meta.Add("repeats " + repeat.ToLowerInvariant());
+        if (item.Tab == Tab.LEARN && !string.IsNullOrWhiteSpace(item.Platform)) meta.Add(item.Platform!);
+        if (item.Progress > 0) meta.Add($"{item.Progress}%");
+        if (!string.IsNullOrWhiteSpace(item.Notes)) meta.Add(item.Notes.Trim().Replace('\n', ' '));
         if (meta.Count > 0) mid.Children.Add(Ui.Sub(string.Join(" · ", meta)));
-        UIElement pri = i.Priority is Priority p && p != Priority.MEDIUM
+        UIElement priority = item.Priority is Priority p && p != Priority.MEDIUM
             ? Ui.Pill(PriorityNames.Label(p), PriorityInk(p), p == Priority.URGENT ? Ui.Res("DangerSoftBrush") : p == Priority.HIGH ? Ui.Res("AmberSoftBrush") : Ui.Res("NavSelectedBrush"), 12, FontWeights.Bold)
             : new Border();
-        var grid = Ui.Columns("Auto,Auto,*,Auto", time, check, mid, pri);
-        var row = new Border { BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(4, 12, 4, 12), Margin = new Thickness(0, 10, 0, 0), Child = grid, Background = Brushes.Transparent };
-        row.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { ItemEditor.Edit(i); e.Handled = true; } };
-        row.ContextMenu = ItemMenu(i);
-        return row;
+        var grid = Ui.Columns("Auto,Auto,*,Auto,Auto", time, CompletionCheck(item), mid, priority, ItemActions(item));
+        return new Border
+        {
+            BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(4, 12, 4, 12),
+            Margin = new Thickness(0, 10, 0, 0), Child = grid, Background = Brushes.Transparent, ContextMenu = ItemMenu(item),
+        };
     }
 
-    internal static void Toggle(Item i, bool isChecked)
+    private static void EditLatest(Item item)
+    {
+        var current = AppState.Current.Item(item.Id);
+        if (current == null || current.DeletedAt != null) { App.Current.Main.Snack("This task is no longer available."); return; }
+        ItemEditor.Edit(current);
+    }
+    private static Button TitleButton(Item item, double size = 14) => WorkspaceUi.Link(
+        $"edit-task-{item.Id}", "Edit task " + item.Title, item.Title, () => EditLatest(item), size, item.Done);
+    private static CheckBox CompletionCheck(Item item)
+    {
+        var check = WorkspaceUi.Identify(Ui.Check(item.Done, done => Toggle(item, done)), $"complete-task-{item.Id}",
+            (item.Done ? "Mark active: " : "Mark done: ") + item.Title);
+        check.Click += (_, e) => e.Handled = true;
+        return check;
+    }
+    private static StackPanel ItemActions(Item item)
+    {
+        var edit = WorkspaceUi.Action($"task-pencil-{item.Id}", "Edit task " + item.Title, "✎", () => EditLatest(item));
+        edit.MinWidth = 32;
+        var more = WorkspaceUi.More($"task-menu-{item.Id}", "More options for " + item.Title, () => ItemMenu(item));
+        return Ui.Row(edit, more);
+    }
+    internal static void Toggle(Item item, bool isChecked)
     {
         var state = AppState.Current;
-        var before = i;
-        if (isChecked)
-        {
-            var msg = state.Complete(i);
-            App.Current.Main.Snack(msg, () => state.Upsert(before));
-        }
-        else
-        {
-            state.Revive(i);
-            App.Current.Main.Snack("Back to Active", () => state.Upsert(before));
-        }
+        var before = state.Item(item.Id);
+        if (before == null || before.DeletedAt != null || before.Done == isChecked) return;
+        if (isChecked) { var message = state.Complete(before); App.Current.Main.Snack(message, () => state.Upsert(before)); }
+        else { state.Revive(before); App.Current.Main.Snack("Back to Active", () => state.Upsert(before)); }
     }
-    private static void Snooze(Item i)
+    private static void Snooze(Item item)
     {
         var state = AppState.Current;
-        state.Snooze(i, state.Settings.SnoozeMinutes);
-        App.Current.Main.Snack($"Snoozed {state.Settings.SnoozeMinutes} min", () => state.Upsert(i));
+        var current = state.Item(item.Id);
+        if (current == null || current.DeletedAt != null) return;
+        state.Snooze(current, state.Settings.SnoozeMinutes);
+        App.Current.Main.Snack($"Snoozed {state.Settings.SnoozeMinutes} min", () => state.Upsert(current));
     }
-    private static void Delete(Item i)
+    private static void Delete(Item item)
     {
-        AppState.Current.SoftDelete(new[] { i });
-        App.Current.Main.Snack("Moved to the Bin", () => AppState.Current.Upsert(i));
+        var current = AppState.Current.Item(item.Id);
+        if (current == null || current.DeletedAt != null || !Ui.Confirm($"Move \"{current.Title}\" to the Bin?")) return;
+        AppState.Current.SoftDelete(new[] { current });
+        App.Current.Main.Snack("Moved to the Bin", () => AppState.Current.Upsert(current));
     }
-    private static ContextMenu ItemMenu(Item i)
+    private static ContextMenu ItemMenu(Item item)
     {
         var state = AppState.Current;
-        var m = new ContextMenu();
-        void Add(string header, Action a) { var mi = new MenuItem { Header = header }; mi.Click += (_, _) => a(); m.Items.Add(mi); }
-        Add("Edit…", () => ItemEditor.Edit(i));
-        Add(i.Done ? "Back to Active" : "Done", () => Toggle(i, !i.Done));
-        if (!i.Done && i.DueAt != null) Add($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(i));
-        if (!i.Done) Add("Move to today", () =>
+        var menu = new ContextMenu();
+        void Add(string header, Action action) { var entry = new MenuItem { Header = header }; entry.Click += (_, e) => { e.Handled = true; action(); }; menu.Items.Add(entry); }
+        Add("Edit…", () => EditLatest(item));
+        Add(item.Done ? "Back to Active" : "Done", () => Toggle(item, !item.Done));
+        if (!item.Done && item.DueAt != null) Add($"Snooze {state.Settings.SnoozeMinutes} min", () => Snooze(item));
+        if (!item.Done) Add("Move to today", () =>
         {
-            state.Upsert(DesktopViews.MoveToToday(i, state.Now, state.Settings.DefaultDueHour));
-            App.Current.Main.Snack("Moved to today", () => state.Upsert(i));
+            var current = state.Item(item.Id);
+            if (current == null || current.DeletedAt != null) return;
+            state.Upsert(DesktopViews.MoveToToday(current, state.Now, state.Settings.DefaultDueHour));
+            App.Current.Main.Snack("Moved to today", () => state.Upsert(current));
         });
-        if (!string.IsNullOrWhiteSpace(i.Url)) Add("Open link", () => InstallInfo.OpenUrl(i.Url!));
-        m.Items.Add(new Separator());
-        Add("Delete (to the Bin)", () => Delete(i));
-        return m;
+        if (!string.IsNullOrWhiteSpace(item.Url)) Add("Open link", () => InstallInfo.OpenUrl(item.Url!));
+        menu.Items.Add(new Separator()); Add("Delete (to the Bin)…", () => Delete(item));
+        return menu;
     }
-    private static List<UIElement> TagList(Item i, long now)
+    private static List<UIElement> TagList(Item item, long now)
     {
         var tags = new List<UIElement>();
-        if (Ui.PriorityTag(i.Priority) is Border pt) tags.Add(pt);
-        if (Recurrence.Label(i) is string rep) tags.Add(Ui.Tag("↻ " + rep, Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
-        if (i.Personal) tags.Add(Ui.Tag("🔒 Personal", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
-        if (i.AlertType == "OFF") tags.Add(Ui.Tag("🔕 Muted", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
-        if (i.SnoozedUntil is long sn && sn > now) tags.Add(Ui.Tag("💤 " + Clock.FormatTime(sn), Ui.Res("AmberBrush"), Ui.Res("AmberSoftBrush")));
+        if (Ui.PriorityTag(item.Priority) is Border priority) tags.Add(priority);
+        if (Recurrence.Label(item) is string repeat) tags.Add(Ui.Tag("↻ " + repeat, Ui.Res("AccentInkBrush"), Ui.Res("AccentSoftBrush")));
+        if (item.Personal) tags.Add(Ui.Tag("🔒 Personal", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
+        if (item.AlertType == "OFF") tags.Add(Ui.Tag("🔕 Muted", Ui.Res("InkSubtleBrush"), Ui.Res("NavSelectedBrush")));
+        if (item.SnoozedUntil is long snooze && snooze > now) tags.Add(Ui.Tag("💤 " + Clock.FormatTime(snooze), Ui.Res("AmberBrush"), Ui.Res("AmberSoftBrush")));
         return tags;
     }
-    private static WrapPanel Tags(Item i, long now)
+    private static WrapPanel Tags(Item item, long now)
     {
-        var row = new WrapPanel();
-        foreach (var t in TagList(i, now)) row.Children.Add(t);
-        return row;
+        var row = new WrapPanel(); foreach (var tag in TagList(item, now)) row.Children.Add(tag); return row;
     }
 
-    internal static Border ItemCard(Item i, long now, bool showList = false)
+    internal static Border ItemCard(Item item, long now, bool showList = false, Button? taskBadge = null)
     {
         var state = AppState.Current;
-        var check = Ui.Check(i.Done, isChecked => Toggle(i, isChecked), i.Done ? "Back to Active" : (i.Tab == Tab.SHOP ? "Bought" : "Done"));
         var titleRow = new WrapPanel();
-        var title = Ui.Text(i.Title, 15, FontWeights.SemiBold);
-        if (i.Done) { title.TextDecorations = TextDecorations.Strikethrough; title.Foreground = Ui.Res("InkSubtleBrush"); }
-        title.Margin = new Thickness(0, 0, 8, 0);
-        titleRow.Children.Add(title);
-        foreach (var t in TagList(i, now)) titleRow.Children.Add(t);
-        var meta = new List<string>();
-        var due = Ui.DueText(i.DueAt, i.DueHasTime, now);
-        if (due.Length > 0) meta.Add((i.Done && i.RepeatMode != "OFF" ? "Returns " : "") + due);
-        if (i.Tab == Tab.TASKS)
-            meta.Add("📋 " + (TaskLists.Live(state.Settings.TaskLists).FirstOrDefault(l => l.Id == TaskLists.ListIdOf(i, state.Settings.TaskLists))?.Name ?? "Unsorted"));
-        if (i.Tab == Tab.SHOP)
-        {
-            if (ShopLists.QtySegment(i) is string qs) meta.Add(qs);
-            if (!string.IsNullOrWhiteSpace(i.ShopName)) meta.Add("🏪 " + i.ShopName);
-            if (ShopLists.ParseNum(i.Price) is double p && p > 0) meta.Add("₹" + p.ToString("#,##0.##", CultureInfo.InvariantCulture));
-            if (showList) meta.Add("📋 " + (ShopLists.ListIdOf(i, state.Settings.ShopLists) is long lid ? state.List(lid)?.Name : "Unsorted"));
-            if (i.ReturnAt is long ra) meta.Add("back " + Clock.FormatDay(ra));
-        }
-        if (i.Tab == Tab.LEARN)
-        {
-            if (!string.IsNullOrWhiteSpace(i.Platform)) meta.Add(i.Platform!);
-            if (!string.IsNullOrWhiteSpace(i.Topic)) meta.Add(i.Topic!);
-            if (i.Progress > 0) meta.Add($"{i.Progress}%");
-            if (i.HoursSpent > 0) meta.Add($"{i.HoursSpent:0.#} h");
-        }
-        if (!string.IsNullOrWhiteSpace(i.Notes)) meta.Add(i.Notes.Trim().Replace('\n', ' '));
-        var metaText = Ui.Sub(string.Join("  ·  ", meta));
-        if (!i.Done && i.DueAt is long d && d < now && i.Tab != Tab.SHOP) metaText.Foreground = Ui.Res("DangerBrush");
+        titleRow.Children.Add(TitleButton(item, 15));
+        foreach (var tag in TagList(item, now)) titleRow.Children.Add(tag);
         var mid = Ui.Stack(titleRow);
-        if (meta.Count > 0) mid.Children.Add(metaText);
-        if (i.Tab == Tab.LEARN && i.Progress > 0)
-            mid.Children.Add(new ProgressBar { Value = i.Progress, Maximum = 100, Height = 4, Margin = new Thickness(0, 5, 0, 0), Foreground = Ui.Res("AccentBrush"), Background = Ui.Res("NavSelectedBrush"), BorderThickness = new Thickness(0) });
-        var actions = Ui.Row();
-        if (!string.IsNullOrWhiteSpace(i.Url)) actions.Children.Add(Ui.IconBtn("🔗", () => InstallInfo.OpenUrl(i.Url!), "Open link"));
-        if (!i.Done && i.DueAt != null) actions.Children.Add(Ui.IconBtn("💤", () => Snooze(i), $"Snooze {state.Settings.SnoozeMinutes} min"));
-        actions.Children.Add(Ui.IconBtn("✎", () => ItemEditor.Edit(i), "Edit"));
-        actions.Children.Add(Ui.IconBtn("🗑", () => Delete(i), "Delete (to the Bin for 30 days)"));
-        var grid = Ui.Columns("Auto,*,Auto", check, mid, actions);
-        var card = Ui.Card(grid, () => ItemEditor.Edit(i));
-        if (i.Personal) card.BorderBrush = Ui.Res("AccentSoftBrush");
+        if (taskBadge != null) mid.Children.Add(taskBadge);
+        var meta = new List<string>();
+        var due = Ui.DueText(item.DueAt, item.DueHasTime, now);
+        if (due.Length > 0) meta.Add((item.Done && item.RepeatMode != "OFF" ? "Returns " : "") + due);
+        if (item.Tab == Tab.SHOP)
+        {
+            if (ShopLists.QtySegment(item) is string quantity) meta.Add(quantity);
+            if (!string.IsNullOrWhiteSpace(item.ShopName)) meta.Add("🏪 " + item.ShopName);
+            if (ShopLists.ParseNum(item.Price) is double price && price > 0) meta.Add("₹" + price.ToString("#,##0.##", CultureInfo.InvariantCulture));
+            if (showList) meta.Add("📋 " + (ShopLists.ListIdOf(item, state.Settings.ShopLists) is long lid ? state.List(lid)?.Name : "Unsorted"));
+            if (item.ReturnAt is long returnAt) meta.Add("back " + Clock.FormatDay(returnAt));
+        }
+        if (item.Tab == Tab.LEARN)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Platform)) meta.Add(item.Platform!);
+            if (!string.IsNullOrWhiteSpace(item.Topic)) meta.Add(item.Topic!);
+            if (item.Progress > 0) meta.Add($"{item.Progress}%");
+            if (item.HoursSpent > 0) meta.Add($"{item.HoursSpent:0.#} h");
+        }
+        if (!string.IsNullOrWhiteSpace(item.Notes)) meta.Add(item.Notes.Trim().Replace('\n', ' '));
+        if (meta.Count > 0)
+        {
+            var text = Ui.Sub(string.Join("  ·  ", meta));
+            if (!item.Done && item.DueAt is long d && d < now && item.Tab != Tab.SHOP) text.Foreground = Ui.Res("DangerBrush");
+            mid.Children.Add(text);
+        }
+        if (item.Tab == Tab.LEARN && item.Progress > 0) mid.Children.Add(new ProgressBar
+        {
+            Value = item.Progress, Maximum = 100, Height = 4, Margin = new Thickness(0, 5, 0, 0), Foreground = Ui.Res("AccentBrush"),
+            Background = Ui.Res("NavSelectedBrush"), BorderThickness = new Thickness(0),
+        });
+        var actions = ItemActions(item);
+        var card = Ui.Card(Ui.Columns("Auto,*,Auto", CompletionCheck(item), mid, actions));
+        card.ContextMenu = ItemMenu(item);
+        if (item.Personal) card.BorderBrush = Ui.Res("AccentSoftBrush");
         return card;
     }
 }
