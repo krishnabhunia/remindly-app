@@ -40,3 +40,19 @@ Android sources, Firestore transport/schema/rules, OAuth settings, signing, rele
 TaskNavigationTests covers navigation modes, Back memory, explicit destinations, stale list IDs and empty/search states. TaskWorkspaceSmoke is called by the existing Windows smoke test and exercises native WPF button Click events, editor save/cancel/discard, checkbox isolation, scope visibility, badges and scroll restoration across all four designs using the isolated smoke-test data directory. These are component/UI automation checks, not a human physical-mouse test or a live Firebase test.
 
 Before merge, review the latest commit's complete CI run. On a real Windows machine, also verify mouse hit targets, screen-reader announcements, long names, 100/125/150% scaling, a narrow window, keyboard tab order, dirty editor closure and navigation during incoming sync. No device data reset or reinstallation is required for verification.
+
+## 2.19.0 additions — finishing the approved task-lists design
+
+Krishna approved the "Remindly Task Lists Redesign" canvas on 9 November 2026 (issue #26). Main already had most of it from R1; these items complete it in all four designs:
+
+| SrNo. | ID | Change |
+|---|---|---|
+| 1 | F7 | Lists overview: a Pinned heading (with pin icon) above All lists; pinned rows show a pin glyph, not the word "Pinned". |
+| 2 | A6 | Inside a list: a ⋯ button (`current-list-menu`) next to Edit list… with Edit list, Pin / Unpin and Delete list. |
+| 3 | B3 | Esc goes back from a list or All tasks, unless focus is in a text box, combo box or password box. |
+| 4 | F14 | Edit list: emoji icon picker (`TaskListIcons`). A custom icon from the phone is offered first and kept; an unchanged choice never rewrites the stored value. |
+| 5 | F1 | Calls, Shops and Products: the name is a button; one click opens its editor. Double-click on the card still works. |
+| 6 | F9/F10 | Header chip: cloud glyph, coloured dot and plain-word status (`SyncStatusText`); Settings and Info use the same words. |
+
+Tests: `DesktopLabelsTests` (Core) and new checks in `TaskWorkspaceSmoke` for the pinned heading, the in-list menu, Esc, the icon picker and single-click names. Android, the Firestore contract, signing, the workflow and macOS are unchanged.
+
