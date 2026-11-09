@@ -4,6 +4,25 @@ Each `## X.Y.Z` section is built into the app (ⓘ Info → What's new) and beco
 feed for that version. Write the section for the version a PR releases (beta builds of it show the same
 section). Versions 2.12.0 to 2.17.0 shipped without a section here; their notes are on GitHub Releases.
 
+## 2.20.0 — Done animation and your phone's settings (09-Nov-2026)
+
+### New
+- **Tick a task** and it does what the phone does: a green **"Moving to Done in 3s · UNDO"** chip counts down
+  (the phone's delay for that tab), then a green tick pops over the card, it shrinks away and the gap closes.
+  Nothing is saved until the countdown ends; UNDO or unticking keeps it. Works in all four designs, in Buy, the
+  Today Hub and Calls.
+- **Untick in Done** and the card slides out and comes back in Active with a short glow. The Active / Done count pops.
+- With the phone's delay **Off**, the tick plays at once and a "Moved to Done · Undo" snackbar follows.
+- **Settings → Follows your phone** shows the phone's settings Windows now uses: Move-to-Done delay, auto-clear
+  Done items (to the Bin on the PC), delete style, card details and the reminder-type chip, the "Medium" tag,
+  sort (Date, Group, Priority, None), visible tabs, count badges, call card details, 12/24-hour time, the time
+  date-only items ring, snooze length, a new item's due date and schedule, and alerts per tab.
+
+### Changed
+- Snooze length and the date-only ring time now come from the phone (90 min and 18:00 by default) instead of the
+  PC-only settings.
+- When Windows "Animation effects" is off, cards only fade.
+
 ## 2.19.0 — task lists, finished (09-Nov-2026)
 
 ### New
