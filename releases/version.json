@@ -1,9 +1,9 @@
 {
-  "versionCode": 218019999,
-  "versionName": "2.18.1",
-  "apk": "Remindly_2.18.1.apk",
-  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.18.1/Remindly_2.18.1.apk",
-  "sha256": "a7325adb9d2d3aea2fed23def1f07f98cc193e277c83809bd0dfd219d5f79b38",
-  "sizeBytes": 16595713,
-  "notes": "**Fix (PR #24):** Represent Android task lists, including empty lists, stable IDs, icons, pins and deletion tombstones. **Fix (PR #24):** Pull and merge taskLists through cloud settings, local persistence and Android data-only backups. **Fix (PR #24):** Patch newer Windows list edits into the existing settings document without replacing Android-only preferences or unknown task-list fields. **Fix (PR #24):** Show list cards, list-scoped tasks, Unsorted and All tasks across the existing four Windows designs. Keep the existing task layouts inside lists. **Fix (PR #24):** Add task-list selection to the item editor and respect the opened list when creating tasks. **Fix (PR #24):** List removal keeps tasks in Unsorted and retains a sync tombstone. **Fix (PR #24):** Manual Sync now performs full collection reads. Scheduled full reads record completion per collection instead of sliding the deadline on every delta poll. **Fix (PR #24):** Report malformed record/settings failures rather than claiming successful synchronization; cancel old-session work and reset caches under the sync gate. **Verification status (PR #24):** Added 13 regression tests, including a real DesktopCloudSync/FirestoreTransport cycle against a synthetic Android-shaped HTTP server. **Verification status (PR #24):** Ru"
+  "versionCode": 218029999,
+  "versionName": "2.18.2",
+  "apk": "Remindly_2.18.2.apk",
+  "apkUrl": "https://github.com/krishnabhunia/remindly-app/releases/download/v2.18.2/Remindly_2.18.2.apk",
+  "sha256": "51befc8b7db4609b645ed280eba37e1444c6c2c79dadf38708554b131913cfae",
+  "sizeBytes": 16595717,
+  "notes": "**Reported bugs fixed in this branch (PR #25):** Single-click a list name/row to open its tasks; no redundant Open button. **Reported bugs fixed in this branch (PR #25):** Single-click a task name/pencil to open its editor. Checkboxes and overflow menus do not trigger editing/navigation. **Reported bugs fixed in this branch (PR #25):** Back and Tasks \u00e2\u2020\u2019 Lists \u00e2\u2020\u2019 current-list breadcrumbs. Hide root All tasks and New list inside a list; hide New list in All tasks. **Reported bugs fixed in this branch (PR #25):** Explicit selected states for Lists / All tasks, plus scoped Active / Done counts. **Related repairs (PR #25):** Lists overview shows list creation/search/sort, not task quick-add or ineffective task-status filters. **Related repairs (PR #25):** All tasks requires an explicit task destination. Ctrl+N and command-bar additions respect the open list. **Related repairs (PR #25):** Scoped search hints and separate empty/no-results messages. **Related repairs (PR #25):** List badges, compact rows, A\u00e2\u20ac\u201cZ/Recent sorting, keyboard activation, accessible names and visible focus. **Related repairs (PR #25):** Back restores search, status, scroll and unsubmitted page quick-add text. **Related repairs (PR #25):** Task/list editors protect dirty drafts on Cancel, Escape and window clos"
 }
