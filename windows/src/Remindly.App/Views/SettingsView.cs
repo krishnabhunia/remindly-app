@@ -205,7 +205,8 @@ public sealed class SettingsView : ScrollViewer, IPage
         about.Children.Add(Ui.Sub($"{InstallInfo.ModeLabel} copy · {InstallInfo.ExePath}"));
         about.Children.Add(Ui.Sub("The Windows companion of the Remindly Android app: Tasks · Learn · Calls ⇄ Buy (lists) · Shops · Products. " +
             "Geofenced arrivals, call-log detection and maps stay on the phone; Account & Sync is now available on Windows."));
-        about.Children.Add(Ui.Row(Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
+        var info = Ui.Primary("Info", () => App.Current.Main.OpenInfo(), "This build, what's implemented, what's new and what's under the hood (F1)");
+        about.Children.Add(Ui.Row(info, Ui.Btn("Source on GitHub", () => InstallInfo.OpenUrl(UpdateLogic.RepoUrl)), Ui.Btn("Log file", () => InstallInfo.OpenUrl(AppPaths.LogFile))));
         _root.Children.Add(Card(about));
     }
 

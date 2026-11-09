@@ -8,7 +8,7 @@ public sealed record ReleaseAsset(string Name, string DownloadUrl, long Size);
 public sealed record ReleaseInfo(Version Version, string TagName, string Name, string HtmlUrl, string? Body, bool Prerelease, List<ReleaseAsset> Assets)
 {
     public string DisplayVersion => TagName.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? TagName[5..] : TagName.TrimStart('v');
-    public bool IsBeta => Prerelease || DisplayVersion.Contains("-beta", StringComparison.OrdinalIgnoreCase);
+    public bool IsBeta => Prerelease || UpdateLogic.IsBetaVersion(DisplayVersion);
 }
 
 public enum UpdateStatus { UpToDate, UpdateAvailable, Unavailable }
@@ -41,7 +41,21 @@ public static class UpdateLogic
 
     public static bool IsWindowsTag(string? tag) => !string.IsNullOrWhiteSpace(tag) &&
         (Regex.IsMatch(tag.Trim(), @"^win-v\d+\.\d+(?:\.\d+)?(?:-beta(?:[0-9]{3}|(?:\.\d+)*))?$", RegexOptions.IgnoreCase) ||
-         Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-beta(?:[0-9]{3}|\.\d+\.\d+))?$", RegexOptions.IgnoreCase));
+         Regex.IsMatch(tag.Trim(), @"^v\d+\.\d+\.\d+(?:-" + BetaSuffix + ")?$", RegexOptions.IgnoreCase));
+
+    /// <summary>A unified beta suffix: "beta007" (short, BT1 A) or the older "beta.&lt;PR&gt;.&lt;run&gt;".</summary>
+    private const string BetaSuffix = @"beta(?:\d{3}|\.\d+\.\d+)";
+
+    /// <summary>Any "-beta" version is a test build ("2.17.0-beta001", "2.16.0-beta.18.29", "2.11.1-beta").</summary>
+    public static bool IsBetaVersion(string? version) =>
+        version?.Contains("-beta", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>NNN of a short beta "x.y.z-betaNNN" (1…999), or null for stable and old long betas.</summary>
+    public static int? ShortBetaNumber(string? version)
+    {
+        var m = Regex.Match(version ?? "", @"-beta(\d{3})(?:\+.*)?$", RegexOptions.IgnoreCase);
+        return m.Success && int.Parse(m.Groups[1].Value) > 0 ? int.Parse(m.Groups[1].Value) : null;
+    }
 
     /// <summary>"win-v2.11.0" / "2.11" / "v2.11.1-beta" → 2.11.0 / 2.11.0 / 2.11.1 (always three parts).</summary>
     public static Version? ParseVersion(string? tag)
@@ -70,14 +84,12 @@ public static class UpdateLogic
         if (leftBeta != rightBeta) return leftBeta ? -1 : 1;
         if (!leftBeta) return 0;
 
-        // Three-digit beta names are a new, later release generation. Retain all
-        // historical PR/run tags for exact rollback, but rank a short beta above
-        // those old labels for the same core version.
-        static bool ShortBeta(string version) => Regex.IsMatch(version,
-            @"-beta[0-9]{3}(?:\+.*)?$", RegexOptions.IgnoreCase);
-        var leftShort = ShortBeta(left);
-        var rightShort = ShortBeta(right);
-        if (leftShort != rightShort) return leftShort ? 1 : -1;
+        // Short betas (x.y.z-betaNNN) replaced the long x.y.z-beta.<PR>.<run> form: at the same x.y.z every
+        // short beta is newer than every long one (both stay below the stable x.y.z).
+        var leftShort = ShortBetaNumber(left);
+        var rightShort = ShortBetaNumber(right);
+        if (leftShort.HasValue != rightShort.HasValue) return leftShort.HasValue ? 1 : -1;
+        if (leftShort.HasValue) return leftShort.Value.CompareTo(rightShort!.Value);
 
         static string[] Ids(string label)
         {
@@ -201,7 +213,7 @@ public static class UpdateLogic
         var display = tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase) ? tag[5..] : tag.TrimStart('v');
         var unified = $"Remindly_{display}.zip";
         var legacy = ZipName(v);
-        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, tag.Contains("-beta", StringComparison.OrdinalIgnoreCase),
+        return new ReleaseInfo(v, tag, tag, $"{RepoUrl}/releases/tag/{Uri.EscapeDataString(tag)}", null, IsBetaVersion(tag),
             new List<ReleaseAsset>
             {
                 new(unified, Dl(unified), 0), new(unified + ".sha256", Dl(unified + ".sha256"), 0),
@@ -236,7 +248,7 @@ public static class UpdateLogic
         if (names.Any(x => x.StartsWith("windows-x64/", StringComparison.Ordinal)))
         {
             var layoutProblems = new List<string>();
-            var portableEntry = names.FirstOrDefault(x => Regex.IsMatch(x, @"^portable/Remindly_\d+\.\d+\.\d+(?:-beta\.\d+\.\d+)?\.exe$"));
+            var portableEntry = names.FirstOrDefault(x => Regex.IsMatch(x, @"^portable/Remindly_\d+\.\d+\.\d+(?:-" + BetaSuffix + @")?\.exe$"));
             if (portableEntry == null) return new() { "portable/Remindly_<version>.exe is missing" };
             var file = portableEntry["portable/".Length..];
             var allowed = new HashSet<string> { portableEntry, $"windows-x64/{file}", $"Android/{file[..^4]}.apk", "macOS/" };

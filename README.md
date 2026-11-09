@@ -8,7 +8,7 @@ Personal reminders app: Task mode (Tasks · Learn · Calls) ⇄ Shop mode (Buy �
 | 2 | Windows 10/11 | [`windows/`](windows/ReadMe.md) | C# / .NET 8 / WPF, Inno Setup | Same unified tags | Same workflow |
 | 3 | macOS | Reserved empty download folder | No app yet, as requested | — | Packaging reservation |
 
-A PR builds a beta; merging to `main` automatically versions, tests and publishes the stable release. Download **Remindly_X.Y.Z.zip** and extract once: `portable/` holds the Windows app, `windows-x64/` the installer, `Android/` the APK, and `macOS/` is empty. Both apps check at startup and offer optional beta updates in Settings. See [the complete release policy](docs/RELEASE-POLICY.md).
+A PR builds a beta named `x.y.z-betaNNN` (for example `2.17.0-beta001`); merging to `main` automatically versions, tests and publishes the stable release. Download **Remindly_X.Y.Z.zip** and extract once: `portable/` holds the Windows app, `windows-x64/` the installer, `Android/` the APK, and `macOS/` is empty. Both apps check at startup and offer optional beta updates in Settings. See [the complete release policy](docs/RELEASE-POLICY.md).
 
 **Install:** download the latest APK from the [Releases](../../releases/latest) page. Installed copies update themselves (Settings → Updates). `releases/version.json` (versionCode, SHA-256, download URL) is the feed the app reads to offer in-app updates from 2.9 on.
 

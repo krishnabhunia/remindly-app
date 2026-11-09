@@ -60,6 +60,12 @@ public partial class MainWindow : Window
 
     public string VersionLabel => $"Version {UpdateService.CurrentDisplayVersion} · {InstallInfo.ModeLabel}";
 
+    /// <summary>A test build (x.y.z-betaNNN): every design shows a small Beta chip next to the version.</summary>
+    public bool IsBetaBuild => Remindly.Core.Info.BuildInfo.IsBeta(UpdateService.CurrentDisplayVersion);
+
+    /// <summary>ⓘ next to the version, F1 and Settings → About open the Info window.</summary>
+    public InfoWindow OpenInfo(string tab = InfoWindow.BuildTab) => InfoWindow.Open(tab);
+
     public BuyView Buy => (BuyView)PageFor(BuyTab);
 
     public bool IsShop => _shop;
@@ -250,9 +256,10 @@ public partial class MainWindow : Window
         if (e.OriginalSource == NavTabs) ShowSelected();
     }
 
-    /// <summary>Ctrl+K command bar (Command Dark) · Ctrl+1…4 menu entries (then Settings) · Ctrl+M Task / Shop · Ctrl+N new task / Learn item.</summary>
+    /// <summary>F1 Info · Ctrl+K command bar (Command Dark) · Ctrl+1…4 menu entries (then Settings) · Ctrl+M Task / Shop · Ctrl+N new task / Learn item.</summary>
     private void OnShortcut(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None) { OpenInfo(); e.Handled = true; return; }
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
         if (e.Key == Key.K && _shell?.FocusCommand() == true) { e.Handled = true; return; }
         if (e.Key == Key.M) { ToggleMode(); e.Handled = true; return; }

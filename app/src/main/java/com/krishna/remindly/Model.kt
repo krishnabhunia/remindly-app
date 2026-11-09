@@ -737,8 +737,9 @@ const val UPDATE_BETA_FEED_URL = "https://github.com/krishnabhunia/remindly-app/
 const val UPDATE_RELEASES_URL = "https://github.com/krishnabhunia/remindly-app/releases/latest"
 
 fun updateFeedUrl(beta: Boolean): String = if (beta) UPDATE_BETA_FEED_URL else UPDATE_FEED_URL
+/** Any "-beta" name is a test build: the short x.y.z-betaNNN and the older x.y.z-beta.<PR>.<run>. */
 fun updateFeedAllowed(feed: VersionFeed?, beta: Boolean): Boolean =
-    feed != null && (beta || !feed.versionName.contains("-beta.", ignoreCase = true))
+    feed != null && (beta || !feed.versionName.contains("-beta", ignoreCase = true))
 const val UPDATE_CHECK_INTERVAL_MS = 24L * 3600_000L
 
 /** The feed the app reads: releases/version.json in the repo (published with every release). */

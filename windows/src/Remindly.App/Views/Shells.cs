@@ -50,6 +50,34 @@ public static class Shells
         return b;
     }
 
+    /// <summary>The icon-only ⓘ Info button that sits right next to the version in every design.</summary>
+    internal static Button InfoButton(MainWindow m, double size = 22)
+    {
+        var b = Ui.Plain(Ui.Glyph(Glyphs.Info, Math.Round(size * 0.62), Ui.Res("InkSubtleBrush")), () => m.OpenInfo(), "Info (F1)", size);
+        b.Width = size;
+        b.Padding = new Thickness(0);
+        b.Margin = new Thickness(4, 0, 0, 0);
+        b.HorizontalContentAlignment = HorizontalAlignment.Center;
+        b.VerticalAlignment = VerticalAlignment.Center;
+        return Labelled(b, "Info");
+    }
+
+    /// <summary>The small "Beta" chip shown beside the version of a test build (nothing for a stable one).</summary>
+    internal static UIElement BetaChip(MainWindow m)
+    {
+        if (!m.IsBetaBuild) return new Border();
+        var chip = Ui.Pill("Beta", Ui.Res("AmberBrush"), Ui.Res("AmberSoftBrush"), 10.5, FontWeights.Bold);
+        chip.Padding = new Thickness(6, 0, 6, 1);
+        chip.Margin = new Thickness(6, 0, 0, 0);
+        AutomationProperties.SetName(chip, "Beta build");
+        chip.ToolTip = "A test build made from a pull request";
+        return chip;
+    }
+
+    /// <summary>A version text followed by the Beta chip (test builds) and the ⓘ Info button.</summary>
+    internal static StackPanel VersionLine(MainWindow m, FrameworkElement version, double infoSize = 22) =>
+        Ui.Row(version, BetaChip(m), InfoButton(m, infoSize));
+
     /// <summary>Square icon button (Settings in the top bars).</summary>
     internal static Button IconSquare(string glyph, string tip, bool selected, Action go, double size = 40)
     {
@@ -106,9 +134,12 @@ internal sealed class FluentShell : IShell
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var left = new DockPanel { Width = 236, Margin = new Thickness(12, 18, 12, 14) };
-        var name = Ui.Stack(Ui.Text("Remindly", 15, FontWeights.SemiBold), Ui.Sub(m.VersionLabel));
+        // The version may wrap in the 236 px menu, so the brand is a grid (not a row) and the ⓘ sits in its own column.
+        var title = Ui.Row(Ui.Text("Remindly", 15, FontWeights.SemiBold, wrap: false), Shells.BetaChip(m));
+        var version = Ui.Columns("*,Auto", Ui.Sub(m.VersionLabel), Shells.InfoButton(m));
+        var name = Ui.Stack(title, version);
         name.Margin = new Thickness(10, 0, 0, 0);
-        var brand = Ui.Row(Shells.Logo(34), name);
+        var brand = Ui.Columns("Auto,*", Shells.Logo(34), name);
         brand.Margin = new Thickness(6, 0, 0, 16);
         DockPanel.SetDock(brand, Dock.Top);
         left.Children.Add(brand);
@@ -204,7 +235,8 @@ internal sealed class BoardShell : IShell
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var name = Ui.Stack(Ui.Text("Remindly", 17, FontWeights.Bold), Ui.Sub($"v{UpdateService.CurrentDisplayVersion} · {InstallInfo.ModeLabel} · {Shells.TodayLong}"));
+        var name = Ui.Stack(Ui.Text("Remindly", 17, FontWeights.Bold),
+            Shells.VersionLine(m, Ui.Sub($"v{UpdateService.CurrentDisplayVersion} · {InstallInfo.ModeLabel} · {Shells.TodayLong}")));
         name.Margin = new Thickness(12, 0, 0, 0);
         var brand = Ui.Row(Shells.Logo(36), name);
         Grid.SetColumn(brand, 0);
@@ -295,11 +327,13 @@ internal sealed class CommandShell : IShell
 
         // ── sidebar ──
         var side = new DockPanel();
-        var title = Ui.Text("Remindly", 15, FontWeights.SemiBold, wrap: false);
-        title.Margin = new Thickness(10, 0, 0, 0);
-        var brand = Ui.Columns("Auto,*,Auto", Shells.Logo(26), title, Ui.Mono(UpdateService.CurrentDisplayVersion, 11.5));
+        // Name on the first line, then the version with the Beta chip and ⓘ (a beta version is too long for one line).
+        var version = Ui.Mono(UpdateService.CurrentDisplayVersion, 11.5);
+        version.ToolTip = m.VersionLabel;
+        var name = Ui.Stack(Ui.Text("Remindly", 15, FontWeights.SemiBold, wrap: false), Shells.VersionLine(m, version, 20));
+        name.Margin = new Thickness(10, 0, 0, 0);
+        var brand = Ui.Columns("Auto,*", Shells.Logo(26), name);
         brand.Margin = new Thickness(6, 0, 4, 14);
-        brand.ToolTip = m.VersionLabel;
         DockPanel.SetDock(brand, Dock.Top);
         side.Children.Add(brand);
 
@@ -478,7 +512,8 @@ internal sealed class HubShell : IShell
     {
         _m = m;
         var bar = Ui.Columns("Auto,*,Auto");
-        var name = Ui.Stack(Ui.Text("Remindly", 15, FontWeights.ExtraBold, wrap: false), Ui.Sub($"v{UpdateService.CurrentDisplayVersion} · {InstallInfo.ModeLabel}"));
+        var name = Ui.Stack(Ui.Text("Remindly", 15, FontWeights.ExtraBold, wrap: false),
+            Shells.VersionLine(m, Ui.Sub($"v{UpdateService.CurrentDisplayVersion} · {InstallInfo.ModeLabel}")));
         name.Margin = new Thickness(10, 0, 18, 0);
         var nav = new Border { Background = Ui.Res("CardBrush"), BorderBrush = Ui.Res("BorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(4), Child = _tabs, VerticalAlignment = VerticalAlignment.Center };
         var left = Ui.Row(Shells.Logo(40), name, nav);

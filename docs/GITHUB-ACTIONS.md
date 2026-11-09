@@ -35,7 +35,7 @@ certificate fingerprint (`a3b944da…ff645c55`) and refuses to publish an APK si
 
 Workflow: `.github/workflows/remindly.yml` — **Remindly build and release**.
 
-Pull requests run Windows tests, UI and installer checks, Android tests and the signed APK build. After all checks pass, the workflow publishes a beta prerelease and a single `Remindly_<version>.zip`. Merging to main publishes the stable release and updates the stable Android feed. Manual runs build only unless Publish is selected on main.
+Pull requests first reserve a short beta number (`tools/beta_tag.py` creates the tag `vx.y.z-betaNNN` on the PR head commit, reusing it on a re-run) and check `docs/FEATURES.md` (`tools/features.py`). They then run Windows tests, UI and installer checks, Android tests and the signed APK build. After all checks pass, the workflow publishes a beta prerelease on that tag and a single `Remindly_<version>.zip`. Merging to main publishes the stable release and updates the stable Android feed. Manual runs build only unless Publish is selected on main.
 
 Versions are calculated automatically from published stable versions and conventional commit messages or release labels. See [Release policy](RELEASE-POLICY.md) for classification and channel rules.
 
