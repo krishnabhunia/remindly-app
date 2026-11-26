@@ -4,6 +4,12 @@ Each `## X.Y.Z` section is built into the app (ⓘ Info → What's new) and beco
 feed for that version. Write the section for the version a PR releases (beta builds of it show the same
 section). Versions 2.12.0 to 2.17.0 shipped without a section here; their notes are on GitHub Releases.
 
+## 2.21.0 — Google sign-in on Windows
+
+### New
+- Select **Sign in with Google** in the installed or portable Windows app to open your browser and choose your account. New Windows profiles use Remindly’s included desktop client automatically.
+- If this PC already has a saved Google desktop client, Remindly keeps using it. You can switch to the built-in client from the sign-in window.
+
 ## 2.20.0 — Done animation and your phone's settings (09-Nov-2026)
 
 ### New
