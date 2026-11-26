@@ -6,7 +6,7 @@ namespace Remindly.App.Services;
 
 /// <summary>
 /// Bridges the Firebase transport to the WPF-owned AppState. Authentication is via the user's
-/// browser; refresh tokens and the Google Desktop client are encrypted using Windows DPAPI.
+/// browser. Windows DPAPI protects saved sessions and manually imported client settings.
 /// </summary>
 public sealed class CloudAccount : IDisposable
 {
@@ -64,10 +64,10 @@ public sealed class CloudAccount : IDisposable
         Notify();
     }
 
-    public async Task<bool> SignInAsync()
+    public async Task<bool> SignInAsync(CancellationToken cancellationToken = default)
     {
         if (Auth == null) throw new InvalidOperationException(ConfigurationError);
-        var success = await Auth.SignInAsync(CancellationToken.None);
+        var success = await Auth.SignInAsync(cancellationToken);
         if (success) Sync?.SetEnabled(AppState.Current.Settings.CloudSyncEnabled &&
                                        AppState.Current.Settings.CloudSyncSetupComplete);
         Notify();

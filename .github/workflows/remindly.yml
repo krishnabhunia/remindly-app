@@ -72,6 +72,35 @@ jobs:
         if (-not $config.TrimStart().StartsWith('{')) { $config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($config)) }
         if (($config | ConvertFrom-Json).client.Count -eq 0) { throw 'Invalid Google services configuration' }
         [IO.File]::WriteAllText((Join-Path $PWD 'app/google-services.json'), $config)
+    - name: Prepare Google Desktop client for Windows
+      env:
+        WINDOWS_OAUTH_CLIENT_JSON: ${{ secrets.WINDOWS_OAUTH_CLIENT_JSON }}
+      run: |
+        if ([string]::IsNullOrWhiteSpace($env:WINDOWS_OAUTH_CLIENT_JSON)) {
+          throw 'Set the WINDOWS_OAUTH_CLIENT_JSON repository secret before building Windows releases.'
+        }
+        try {
+          $desktop = ($env:WINDOWS_OAUTH_CLIENT_JSON | ConvertFrom-Json -ErrorAction Stop).installed
+          $firebase = Get-Content -Raw -LiteralPath 'app/google-services.json' | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+          throw 'Could not parse the Google OAuth or Firebase configuration.'
+        }
+        if ($desktop.client_id -isnot [string] -or [string]::IsNullOrWhiteSpace($desktop.client_id) -or
+            $desktop.client_secret -isnot [string] -or [string]::IsNullOrWhiteSpace($desktop.client_secret)) {
+          throw 'WINDOWS_OAUTH_CLIENT_JSON must be the downloaded Google Desktop app client with a client ID and client secret.'
+        }
+        if ($desktop.project_id -isnot [string] -or [string]::IsNullOrWhiteSpace($desktop.project_id) -or
+            $desktop.project_id -cne $firebase.project_info.project_id) {
+          throw 'The Google Desktop OAuth client and Firebase configuration must belong to the same project.'
+        }
+        $client = @{ installed = @{
+          client_id = $desktop.client_id
+          client_secret = $desktop.client_secret
+          project_id = $desktop.project_id
+        } } | ConvertTo-Json -Depth 3 -Compress
+        $directory = Join-Path $PWD 'windows/src/Remindly.Core/Config'
+        [void][IO.Directory]::CreateDirectory($directory)
+        [IO.File]::WriteAllText((Join-Path $directory 'google-desktop-client.json'), $client)
     - name: Desktop unit tests
       run: dotnet test tests/Remindly.Core.Tests/Remindly.Core.Tests.csproj -c Release -p:RemindlyVersion=$env:PACKAGE_VERSION --logger "trx;LogFileName=unit-tests.trx"
       working-directory: windows
@@ -97,6 +126,9 @@ jobs:
         SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         BUILD_TIME: ${{ steps.plan.outputs.built }}
         RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+    - name: Remove staged Google Desktop client
+      if: always()
+      run: Remove-Item -LiteralPath 'windows/src/Remindly.Core/Config/google-desktop-client.json' -Force -ErrorAction SilentlyContinue
     - name: UI smoke test
       timeout-minutes: 10
       run: |
@@ -112,6 +144,7 @@ jobs:
         DOTNET_NOLOGO: '1'
         BASE_VERSION: ${{ steps.plan.outputs.base }}
         PACKAGE_VERSION: ${{ steps.plan.outputs.version }}
+        REMINDLY_REQUIRE_BUNDLED_GOOGLE_CLIENT: '1'
     - name: Build installed application
       run: |
         $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
