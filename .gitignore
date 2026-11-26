@@ -4,6 +4,7 @@
 keystore.properties
 local.properties
 app/google-services.json
+windows/src/Remindly.Core/Config/google-desktop-client.json
 # --- build output ---
 build/
 app/build/

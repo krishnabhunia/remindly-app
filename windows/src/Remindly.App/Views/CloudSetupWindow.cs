@@ -14,6 +14,7 @@ public sealed class CloudSetupWindow : Window
     private int _step = 1;
     private string? _backupPath;
     private string? _message;
+    private CancellationTokenSource? _signIn;
 
     public CloudSetupWindow(CloudAccount cloud)
     {
@@ -28,6 +29,15 @@ public sealed class CloudSetupWindow : Window
         Theme.Dress(this);
         SetResourceReference(BackgroundProperty, "SurfaceBrush");
         Render();
+        if (cloud.Ready && cloud.Auth?.HasClient == true && !cloud.SignedIn)
+            ContentRendered += StartBrowserSignIn;
+        Closed += (_, _) => _signIn?.Cancel();
+    }
+
+    private async void StartBrowserSignIn(object? sender, EventArgs e)
+    {
+        ContentRendered -= StartBrowserSignIn;
+        await SignIn();
     }
 
     private static Button Action(string name, Action action, bool primary = false)
@@ -51,13 +61,31 @@ public sealed class CloudSetupWindow : Window
         {
             _body.Children.Add(Ui.Sub("Sign in with the SAME Google account used by Remindly on your Android phone. " +
                 "Google opens in your system browser; Remindly never asks for your Google password."));
-            _body.Children.Add(Ui.Sub("A one-time Google OAuth Desktop client must be created in the same Firebase project as your phone. " +
-                "Select its downloaded client_secret_*.json here; it is stored encrypted on this Windows account."));
-            _body.Children.Add(Ui.Row(Action("Select Google Desktop client JSON…", SelectClient),
-                Ui.Sub(_cloud.Auth?.HasClient == true ? "✓ Desktop client configured" : "Not configured yet")));
-            var signIn = Action("Continue with Google", async () => await SignIn(), primary: true);
-            signIn.IsEnabled = _cloud.Ready && _cloud.Auth?.HasClient == true;
-            _body.Children.Add(signIn);
+            var auth = _cloud.Auth;
+            if (_cloud.Ready && auth?.HasBundledClient == false && _signIn == null)
+            {
+                _body.Children.Add(Ui.Sub(auth.HasClient
+                    ? "This PC has saved Google sign-in settings."
+                    : "For this build, select a Google Desktop client from your Remindly Firebase project."));
+                _body.Children.Add(Action("Select Google Desktop client JSON…", SelectClient));
+            }
+            if (_signIn != null)
+            {
+                _body.Children.Add(Action("Cancel sign-in", () => _signIn?.Cancel()));
+            }
+            else
+            {
+                var signIn = Action("Continue with Google", async () => await SignIn(), primary: true);
+                signIn.IsEnabled = _cloud.Ready && auth?.HasClient == true;
+                _body.Children.Add(signIn);
+                if (!_cloud.SignedIn && auth is { HasBundledClient: true, HasSavedClient: true })
+                    _body.Children.Add(Action("Use Remindly’s built-in sign-in settings", () =>
+                    {
+                        auth.ClearClient();
+                        _message = "Built-in settings selected. Continue with Google to sign in.";
+                        Render();
+                    }));
+            }
             if (_cloud.SignedIn)
             {
                 _body.Children.Add(Ui.Sub("Signed in as " + _cloud.Email));
@@ -112,11 +140,14 @@ public sealed class CloudSetupWindow : Window
 
     private async Task SignIn()
     {
-        _message = "Waiting for Google sign-in in your browser…";
+        if (_signIn != null) return;
+        using var attempt = new CancellationTokenSource();
+        _signIn = attempt;
+        _message = "Choose your Google account in the browser, then return to Remindly.";
         Render();
         try
         {
-            if (await _cloud.SignInAsync())
+            if (await _cloud.SignInAsync(attempt.Token))
             {
                 _step = 2;
                 _message = "Signed in as " + _cloud.Email;
@@ -124,7 +155,8 @@ public sealed class CloudSetupWindow : Window
             else _message = _cloud.Auth?.LastError ?? "Sign-in was not completed.";
         }
         catch (Exception ex) { _message = ex.Message; }
-        Render();
+        finally { _signIn = null; }
+        if (IsVisible) Render();
     }
 
     private void Enable()

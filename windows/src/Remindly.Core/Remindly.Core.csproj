@@ -24,4 +24,8 @@
     <EmbeddedResource Include="../../../app/google-services.json" LogicalName="google-services.json" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('Config/google-desktop-client.json')">
+    <EmbeddedResource Include="Config/google-desktop-client.json" LogicalName="google-desktop-client.json" />
+  </ItemGroup>
+
 </Project>

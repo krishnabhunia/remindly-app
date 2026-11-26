@@ -26,6 +26,12 @@ public static class SmokeTest
     }
     private static async Task RunAsync(MainWindow main)
     {
+        if (Environment.GetEnvironmentVariable("REMINDLY_REQUIRE_BUNDLED_GOOGLE_CLIENT") == "1")
+        {
+            using var cloud = new CloudAccount();
+            Check(cloud.Ready && cloud.Auth is { HasBundledClient: true, HasClient: true, HasSavedClient: false },
+                "Google sign-in is configured for a new Windows profile in this package");
+        }
         var state = AppState.Current;
         Seed(state);
         main.WindowStartupLocation = WindowStartupLocation.Manual;

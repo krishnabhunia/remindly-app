@@ -4,25 +4,38 @@ Both apps must sign in to the **same Google account in the same Firebase project
 Windows app uses the system browser and a Google **Desktop application** OAuth client;
 it does not accept your Google password or an Android/Web OAuth client.
 
-## One-time Google Cloud setup
+## Sign in on Windows
 
-1. In [Google Cloud credentials](https://console.cloud.google.com/apis/credentials?project=remindly-5c1e6),
-   select the Firebase project already used by the Android Remindly APK.
-2. Create **OAuth client ID → Desktop app** (for example, `Remindly Windows`).
-   If the OAuth consent screen is in Testing, add the intended Google account as a test user.
-3. Download the `client_secret_*.json`. Do not commit it, share it or include it in bug reports.
-4. Windows Remindly → **Sign in with Google** (top-right) → **Select Google Desktop client JSON**.
-   Then select **Continue with Google** and complete sign-in in your system browser.
-5. Confirm **Back up & enable two-way sync**. Windows saves a separate
+1. Select **Sign in with Google** at the top right or in **Settings → Account & Sync**.
+   In the browser, choose the Google account you use on Android.
+2. Confirm **Back up & enable two-way sync**. Windows saves a separate
    `%LOCALAPPDATA%\Remindly\backups\pre-cloud-sync-*.json` before its first cloud write.
-6. Android Remindly → **Settings → Google Account** → sign in with the same account and
+3. On Android open **Settings → Google Account**, sign in with the same account and
    enable **Cloud sync (beta)**. Both devices require network access.
-7. Windows **Settings → Account & Sync** shows connection state, errors and **Sync now**.
+4. Windows **Settings → Account & Sync** shows connection state, errors and **Sync now**.
 
-The Firebase client configuration (`app/google-services.json`) is injected into
-the Windows build by the existing `GOOGLE_SERVICES_JSON` GitHub Actions secret.
-It is not stored in Git. A locally built Windows app without this configuration
-shows a configuration error and retains the local-only mode.
+Official Windows portable and installed releases include Remindly's Desktop OAuth
+client. A build made locally without the embedded client can use **Select Google
+Desktop client JSON** once on that Windows profile. A previously saved desktop
+client remains available after signing out.
+
+## Configure the release once
+
+1. Open Google Auth Platform → **Clients** in the Firebase project used by Android.
+   Reuse the existing **Desktop app** client if you have its downloaded JSON, or
+   create a Desktop app client and save the JSON when Google offers it. While the
+   consent screen is in Testing, add the Google accounts that will sign in.
+   [Remindly project credentials](https://console.cloud.google.com/apis/credentials?project=remindly-5c1e6)
+2. Under the GitHub repository's **Settings → Secrets and variables → Actions**,
+   set `WINDOWS_OAUTH_CLIENT_JSON` to the downloaded JSON contents. Keep the
+   existing `GOOGLE_SERVICES_JSON` Firebase configuration in place.
+3. Run the build again. It checks the Desktop client type, client ID, client
+   secret and project against Firebase before embedding the client. Install the
+   newly built version to use the preconfiguration.
+
+Users still authorize Remindly in their browser. The shipped desktop client is
+public application configuration. Personal refresh tokens stay protected by
+Windows Data Protection API on the signed-in user's Windows profile.
 
 ## Data safety and scope
 

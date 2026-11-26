@@ -71,6 +71,44 @@ public class CloudSyncTests
     }
 
     [Fact]
+    public void Bundled_google_client_requires_matching_desktop_registration()
+    {
+        const string desktop = """{"installed":{"project_id":"example","client_id":"pc-id","client_secret":"example-only"}}""";
+        Assert.Equal("pc-id", OAuthClient.ParseJson(desktop, "example")?.ClientId);
+        Assert.Null(OAuthClient.ParseJson(desktop, "other-project"));
+        Assert.Null(OAuthClient.ParseJson(desktop, ""));
+        Assert.Null(OAuthClient.ParseJson(desktop.Replace("installed", "web"), "example"));
+        Assert.Null(OAuthClient.ParseJson(desktop.Replace("example-only", " "), "example"));
+        Assert.Null(OAuthClient.ParseJson("""{"clientId":"old-format","clientSecret":"example"}""", "example"));
+    }
+
+    [Fact]
+    public async Task New_profiles_use_the_bundle_and_existing_profiles_keep_their_client()
+    {
+        var dir = Directory.CreateTempSubdirectory("remindly-client-");
+        try
+        {
+            var config = new FirebaseConfig { ProjectId = "example" };
+            var bundled = new OAuthClient("bundled-id", "sample");
+            var saved = new OAuthClient("previous-id", "sample");
+            var auth = new FirebaseAuth(config, dir.FullName, bundled);
+            Assert.True(auth.HasClient);
+            Assert.False(auth.HasSavedClient);
+            Assert.Equal(bundled, auth.Client);
+            Assert.False(await auth.SignInAsync(new CancellationToken(canceled: true)));
+            Assert.Equal(AuthState.SignedOut, auth.State);
+            Assert.False(new FirebaseAuth(config, dir.FullName, null).HasClient);
+            auth.SaveClient(saved);
+            var upgraded = new FirebaseAuth(config, dir.FullName, bundled);
+            Assert.Equal(saved, upgraded.Client);
+            upgraded.ClearClient();
+            Assert.Equal(bundled, upgraded.Client);
+            Assert.Equal(bundled, new FirebaseAuth(config, dir.FullName, bundled).Client);
+        }
+        finally { dir.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void Cloud_opt_in_is_off_by_default()
     {
         var s = new AppSettings();

@@ -5,7 +5,7 @@ The unified workflow builds Android and Windows together; macOS is reserved.
 GitHub builds, tests, signs and publishes the APK. The repository holds **no** signing material or keys:
 everything confidential lives in encrypted repository secrets. The runner only sees them while the job runs, and they are masked in logs.
 
-## 1 · One-time setup: add 6 repository secrets
+## 1 · Configure the seven repository secrets
 
 GitHub → repository → **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -17,6 +17,7 @@ GitHub → repository → **Settings → Secrets and variables → Actions → N
 | 4 | `REMINDLY_KEY_PASSWORD` | key password (`keyPassword` in your `keystore.properties`) |
 | 5 | `MAPS_API_KEY` | the Android-restricted Google Maps SDK key (Key A) |
 | 6 | `GOOGLE_SERVICES_JSON` | the whole contents of `app/google-services.json` (paste as-is; base64 also accepted) |
+| 7 | `WINDOWS_OAUTH_CLIENT_JSON` | Raw JSON downloaded for the Google Desktop app client in the same Firebase project. |
 
 Base64 of the keystore:
 

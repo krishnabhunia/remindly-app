@@ -8,11 +8,11 @@ using System.Text.Json.Nodes;
 
 namespace Remindly.Core.Sync;
 
-/// <summary>The Google "Desktop app" OAuth client Krishna creates once in Cloud Console (same project as Firebase).</summary>
+/// <summary>A Google Desktop app OAuth registration for the Firebase project.</summary>
 public sealed record OAuthClient(string ClientId, string ClientSecret)
 {
     /// <summary>Accepts the client_secret_*.json Google offers for download, or a bare {clientId, clientSecret}.</summary>
-    public static OAuthClient? ParseJson(string json)
+    public static OAuthClient? ParseJson(string json, string? expectedProjectId = null)
     {
         try
         {
@@ -20,13 +20,31 @@ public sealed record OAuthClient(string ClientId, string ClientSecret)
             if (root == null) return null;
             // A Web OAuth client does not permit the desktop loopback redirect.
             if (root.ContainsKey("web")) return null;
-            var inner = root["installed"] as JsonObject ?? root;
+            var installed = root["installed"] as JsonObject;
+            if (expectedProjectId != null)
+            {
+                // Official builds use Google's downloaded Desktop format for the same Firebase project.
+                if (string.IsNullOrWhiteSpace(expectedProjectId) ||
+                    installed?["project_id"]?.GetValue<string>() != expectedProjectId ||
+                    string.IsNullOrWhiteSpace(installed?["client_id"]?.GetValue<string>()) ||
+                    string.IsNullOrWhiteSpace(installed?["client_secret"]?.GetValue<string>()))
+                    return null;
+            }
+            var inner = installed ?? root;
             var id = inner["client_id"]?.GetValue<string>() ?? inner["clientId"]?.GetValue<string>();
             var secret = inner["client_secret"]?.GetValue<string>() ?? inner["clientSecret"]?.GetValue<string>();
             if (string.IsNullOrWhiteSpace(id)) return null;
             return new OAuthClient(id.Trim(), (secret ?? "").Trim());
         }
         catch { return null; }
+    }
+
+    internal static OAuthClient? LoadBundled(string projectId)
+    {
+        using var stream = typeof(OAuthClient).Assembly.GetManifestResourceStream("google-desktop-client.json");
+        if (stream == null) return null;
+        using var reader = new StreamReader(stream);
+        return ParseJson(reader.ReadToEnd(), projectId);
     }
 
     public string ToJson() => new JsonObject { ["installed"] = new JsonObject { ["client_id"] = ClientId, ["client_secret"] = ClientSecret } }.ToJsonString();
@@ -39,6 +57,7 @@ public sealed class AuthSession
     public string? DisplayName { get; set; }
     public string FirebaseRefreshToken { get; set; } = "";
     public string? GoogleRefreshToken { get; set; }
+    public OAuthClient? GoogleRefreshClient { get; set; }
     public string IdToken { get; set; } = "";
     public long IdTokenExpiresAt { get; set; }
 }
@@ -62,7 +81,11 @@ public sealed class FirebaseAuth
     public const string Scopes = "openid email profile";
 
     public AuthSession? Session { get; private set; }
-    public OAuthClient? Client { get; private set; }
+    private readonly OAuthClient? _bundledClient;
+    private OAuthClient? _savedClient;
+    public OAuthClient? Client => _savedClient ?? _bundledClient;
+    public bool HasBundledClient => _bundledClient != null;
+    public bool HasSavedClient => _savedClient != null;
     public AuthState State { get; private set; } = AuthState.SignedOut;
     public string? LastError { get; private set; }
     public event Action? Changed;
@@ -72,11 +95,15 @@ public sealed class FirebaseAuth
     private string SessionPath => Path.Combine(_dir, "session.bin");
 
     public FirebaseAuth(FirebaseConfig cfg, string secureDir)
+        : this(cfg, secureDir, OAuthClient.LoadBundled(cfg.ProjectId)) { }
+
+    internal FirebaseAuth(FirebaseConfig cfg, string secureDir, OAuthClient? bundledClient)
     {
+        _bundledClient = bundledClient;
         _cfg = cfg; _dir = secureDir;
         Directory.CreateDirectory(_dir);
         var c = SecureStore.Read(ClientPath);
-        if (c != null) Client = OAuthClient.ParseJson(c);
+        if (c != null) _savedClient = OAuthClient.ParseJson(c);
         var s = SecureStore.Read(SessionPath);
         if (s != null)
         {
@@ -99,12 +126,12 @@ public sealed class FirebaseAuth
 
     public void SaveClient(OAuthClient client)
     {
-        Client = client;
         SecureStore.Write(ClientPath, client.ToJson());
+        _savedClient = client;
         Changed?.Invoke();
     }
 
-    public void ClearClient() { Client = null; SecureStore.Delete(ClientPath); Changed?.Invoke(); }
+    public void ClearClient() { SecureStore.Delete(ClientPath); _savedClient = null; Changed?.Invoke(); }
 
     private void Persist()
     {
@@ -122,11 +149,13 @@ public sealed class FirebaseAuth
     /// <summary>Interactive sign-in. Opens the system browser and waits for the loopback redirect.</summary>
     public async Task<bool> SignInAsync(CancellationToken ct, Action<string>? status = null)
     {
-        if (Client == null) { LastError = "No Google Desktop client configured."; State = AuthState.Error; Changed?.Invoke(); return false; }
+        var client = Client;
+        if (client == null) { LastError = "No Google Desktop client configured."; State = AuthState.Error; Changed?.Invoke(); return false; }
         State = AuthState.SigningIn; LastError = null; Changed?.Invoke();
         HttpListener? listener = null;
         try
         {
+            ct.ThrowIfCancellationRequested();
             var port = FreePort();
             var redirect = $"http://127.0.0.1:{port}/";
             var verifier = Base64Url(RandomNumberGenerator.GetBytes(48));
@@ -139,7 +168,7 @@ public sealed class FirebaseAuth
 
             var url = "https://accounts.google.com/o/oauth2/v2/auth?" + Query(new()
             {
-                ["client_id"] = Client.ClientId,
+                ["client_id"] = client.ClientId,
                 ["redirect_uri"] = redirect,
                 ["response_type"] = "code",
                 ["scope"] = Scopes,
@@ -152,10 +181,7 @@ public sealed class FirebaseAuth
             status?.Invoke("Waiting for you to choose a Google account in the browser…");
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-            var ctxTask = listener.GetContextAsync();
-            var done = await Task.WhenAny(ctxTask, Task.Delay(TimeSpan.FromMinutes(5), ct));
-            if (done != ctxTask) throw new TimeoutException("Sign-in timed out (5 minutes).");
-            var ctx = await ctxTask;
+            var ctx = await listener.GetContextAsync().WaitAsync(TimeSpan.FromMinutes(5), ct);
             var q = ctx.Request.QueryString;
             var err = q["error"]; var code = q["code"]; var st = q["state"];
             var ok = err == null && code != null && st == state;
@@ -165,8 +191,8 @@ public sealed class FirebaseAuth
             status?.Invoke("Exchanging the code with Google…");
             var tok = await PostForm("https://oauth2.googleapis.com/token", new()
             {
-                ["client_id"] = Client.ClientId,
-                ["client_secret"] = Client.ClientSecret,
+                ["client_id"] = client.ClientId,
+                ["client_secret"] = client.ClientSecret,
                 ["code"] = code!,
                 ["code_verifier"] = verifier,
                 ["grant_type"] = "authorization_code",
@@ -191,12 +217,21 @@ public sealed class FirebaseAuth
                 FirebaseRefreshToken = fb["refreshToken"]?.GetValue<string>() ?? "",
                 IdToken = fb["idToken"]?.GetValue<string>() ?? "",
                 GoogleRefreshToken = googleRefresh,
+                GoogleRefreshClient = googleRefresh == null ? null : client,
             };
             var expiresIn = int.TryParse(fb["expiresIn"]?.GetValue<string>(), out var e) ? e : 3600;
             s.IdTokenExpiresAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (expiresIn - 120) * 1000L;
+            ct.ThrowIfCancellationRequested();
             Session = s; State = AuthState.SignedIn; Persist(); Changed?.Invoke();
             Log?.Invoke($"Signed in as {s.Email} (uid {s.Uid[..Math.Min(6, s.Uid.Length)]}…)", null);
             return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            LastError = "Sign-in cancelled.";
+            State = Session == null ? AuthState.SignedOut : AuthState.SignedIn;
+            Changed?.Invoke();
+            return false;
         }
         catch (Exception ex)
         {
@@ -247,11 +282,13 @@ public sealed class FirebaseAuth
     /// <summary>Google access token (calendar.readonly) — for the read-only calendar view (later build).</summary>
     public async Task<string?> GetGoogleAccessTokenAsync(CancellationToken ct = default)
     {
-        if (Client == null || Session?.GoogleRefreshToken == null) return null;
+        var session = Session;
+        var client = session?.GoogleRefreshClient ?? Client;
+        if (client == null || session?.GoogleRefreshToken == null) return null;
         var r = await PostForm("https://oauth2.googleapis.com/token", new()
         {
-            ["client_id"] = Client.ClientId, ["client_secret"] = Client.ClientSecret,
-            ["grant_type"] = "refresh_token", ["refresh_token"] = Session.GoogleRefreshToken,
+            ["client_id"] = client.ClientId, ["client_secret"] = client.ClientSecret,
+            ["grant_type"] = "refresh_token", ["refresh_token"] = session.GoogleRefreshToken,
         }, ct);
         return r["access_token"]?.GetValue<string>();
     }
